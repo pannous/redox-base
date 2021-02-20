@@ -29,8 +29,8 @@ struct Dir {
     entries: Vec<Entry>,
 }
 
-struct State {
-    file: File,
+struct State<'path> {
+    file: OutputImageGuard<'path>,
     offset: u64,
     max_size: u64,
     inode_count: u16,
@@ -336,6 +336,33 @@ fn allocate_contents_and_write_inodes(
     )
 }
 
+struct OutputImageGuard<'a> {
+    file: File,
+    path: &'a Path,
+    ok: bool,
+}
+
+impl std::ops::Deref for OutputImageGuard<'_> {
+    type Target = File;
+
+    fn deref(&self) -> &Self::Target {
+        &self.file
+    }
+}
+impl std::ops::DerefMut for OutputImageGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.file
+    }
+}
+
+impl Drop for OutputImageGuard<'_> {
+    fn drop(&mut self) {
+        if !self.ok {
+            let _ = std::fs::remove_file(self.path);
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let matches = App::new(clap::crate_name!())
         .about(clap::crate_description!())
@@ -403,13 +430,19 @@ fn main() -> Result<()> {
         .write(true)
         .create(true)
         .create_new(false)
-        .open(destination_temp_path)
+        .open(&destination_temp_path)
         .context("failed to open destination file")?;
+
+    let guard = OutputImageGuard {
+        file: destination_temp_file,
+        path: &destination_temp_path,
+        ok: false,
+    };
 
     const BUFFER_SIZE: usize = 8192;
 
     let mut state = State {
-        file: destination_temp_file,
+        file: guard,
         offset: 0,
         max_size,
         inode_count: 0,
@@ -482,6 +515,11 @@ fn main() -> Result<()> {
             .write_all_at(&header_bytes, header_offset)
             .context("failed to write header")?;
     }
+
+    std::fs::rename(&destination_temp_path, destination_path)
+        .context("failed to rename output image")?;
+
+    state.file.ok = true;
 
     Ok(())
 }

@@ -337,15 +337,17 @@ fn allocate_contents_and_write_inodes(
 }
 
 fn main() -> Result<()> {
-    let matches = App::new("redox_initfs_package")
-        .help("Package a Redox initfs")
+    let matches = App::new(clap::crate_name!())
+        .about(clap::crate_description!())
+        .version(clap::crate_version!())
+        .author(clap::crate_authors!())
         .arg(
             Arg::with_name("MAX_SIZE")
                 .long("--max-size")
                 .short("-m")
                 .takes_value(true)
                 .required(false)
-                .help("Set the upper limit for how large the image can become (default 8 MiB)."),
+                .help("Set the upper limit for how large the image can become (default 64 MiB)."),
         )
         .arg(
             Arg::with_name("SOURCE")

@@ -1,14 +1,11 @@
 [package]
-name = "utils"
+name = "redox-initfs-ar"
 version = "0.1.0"
 authors = ["4lDO2 <4lDO2@protonmail.com>"]
 edition = "2018"
+description = "Archive a directory into a Redox initfs image"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[[bin]]
-path = "src/redox_initfs_package.rs"
-name = "redox-initfs-package"
 
 [dependencies]
 anyhow = "1"

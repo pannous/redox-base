@@ -147,7 +147,7 @@ impl SchemeMut for Scheme {
 
             self.filesystem.files.insert(new_inode_number, new_inode);
 
-            let parent_file = self.filesystem.files.get_mut(&parent_dir_inode).ok_or(Error::new(ENOENT))?;
+            let parent_file = self.filesystem.files.get_mut(&parent_dir_inode).ok_or(Error::new(EIO))?;
             match parent_file.data {
                 FileData::File(_) => return Err(Error::new(EIO)),
                 FileData::Directory(ref mut entries) => entries.push(DirEntry { name: new_name.to_owned(), inode: new_inode_number }),
@@ -162,7 +162,7 @@ impl SchemeMut for Scheme {
             }
         } else {
             let inode = self.filesystem.resolve(path, uid, gid)?;
-            let file = self.filesystem.files.get_mut(&inode).ok_or(Error::new(ENOENT))?;
+            let file = self.filesystem.files.get_mut(&inode).ok_or(Error::new(EIO))?;
             if flags & O_STAT == 0 && flags & O_DIRECTORY != 0 && file.mode & MODE_TYPE != MODE_DIR {
                 return Err(Error::new(ENOTDIR));
             }
@@ -197,7 +197,7 @@ impl SchemeMut for Scheme {
     }
     fn chmod(&mut self, path: &[u8], mode: u16, uid: u32, gid: u32) -> Result<usize> {
         let inode_num = self.filesystem.resolve(path, uid, gid)?;
-        let inode = self.filesystem.files.get_mut(&inode_num).ok_or(Error::new(ENOENT))?;
+        let inode = self.filesystem.files.get_mut(&inode_num).ok_or(Error::new(EIO))?;
 
         let cur_mode = inode.mode & MODE_TYPE;
 

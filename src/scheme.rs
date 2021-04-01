@@ -88,14 +88,48 @@ impl Scheme {
 
         Ok(0)
     }
+
+    pub fn open_existing(&mut self, path: &[u8], flags: usize, uid: u32, gid: u32) -> Result<Handle> {
+        let inode = self.filesystem.resolve(path, uid, gid)?;
+        let file = self.filesystem.files.get_mut(&inode).ok_or(Error::new(EIO))?;
+        if flags & O_STAT == 0 && flags & O_DIRECTORY != 0 && file.mode & MODE_TYPE != MODE_DIR {
+            return Err(Error::new(ENOTDIR));
+        }
+        // Unlike on Linux, which allows directories to be opened without O_DIRECTORY, Redox has no
+        // getdents(2) syscall, and thus it adds the additional restriction that directories have
+        // to be opened with O_DIRECTORY, if they aren't opened with O_STAT to check whether it's a
+        // directory.
+        if flags & O_STAT == 0 && flags & O_DIRECTORY == 0 && file.mode & MODE_TYPE == MODE_DIR {
+            return Err(Error::new(EISDIR));
+        }
+
+        let current_perm = current_perm(file, uid, gid);
+        check_permissions(flags, current_perm)?;
+
+        file.open_handles += 1;
+
+        Ok(Handle {
+            inode,
+            offset: 0,
+            opened_as_read: flags & O_ACCMODE == O_RDONLY || flags & O_ACCMODE == O_RDWR,
+            opened_as_write: flags & O_ACCMODE == O_WRONLY || flags & O_ACCMODE == O_RDWR,
+            current_perm,
+        })
+    }
 }
 
 impl SchemeMut for Scheme {
     fn open(&mut self, path: &[u8], flags: usize, uid: u32, gid: u32) -> Result<usize> {
-        let handle = if flags & O_CREAT != 0 {
-            if flags & O_EXCL != 0 && self.filesystem.resolve(path, 0, 0).is_ok() {
-                return Err(Error::new(EEXIST));
-            }
+        let exists = self.filesystem.resolve(path, 0, 0).is_ok();
+        if flags & O_CREAT != 0 && flags & O_EXCL != 0 && exists {
+            return Err(Error::new(EEXIST));
+        }
+
+        let handle =
+            if flags & O_CREAT != 0 && exists {
+                self.open_existing(path, flags, uid, gid)?
+            } else if flags & O_CREAT != 0 {
+
             if flags & O_STAT != 0 { return Err(Error::new(EINVAL)) }
 
             let (parent_dir_inode, new_name) = self.filesystem.resolve_except_last(path, uid, gid)?;
@@ -161,31 +195,7 @@ impl SchemeMut for Scheme {
                 current_perm,
             }
         } else {
-            let inode = self.filesystem.resolve(path, uid, gid)?;
-            let file = self.filesystem.files.get_mut(&inode).ok_or(Error::new(EIO))?;
-            if flags & O_STAT == 0 && flags & O_DIRECTORY != 0 && file.mode & MODE_TYPE != MODE_DIR {
-                return Err(Error::new(ENOTDIR));
-            }
-            // Unlike on Linux, which allows directories to be opened without O_DIRECTORY, Redox has no
-            // getdents(2) syscall, and thus it adds the additional restriction that directories have
-            // to be opened with O_DIRECTORY, if they aren't opened with O_STAT to check whether it's a
-            // directory.
-            if flags & O_STAT == 0 && flags & O_DIRECTORY == 0 && file.mode & MODE_TYPE == MODE_DIR {
-                return Err(Error::new(EISDIR));
-            }
-
-            let current_perm = current_perm(file, uid, gid);
-            check_permissions(flags, current_perm)?;
-
-            file.open_handles += 1;
-
-            Handle {
-                inode,
-                offset: 0,
-                opened_as_read: flags & O_ACCMODE == O_RDONLY || flags & O_ACCMODE == O_RDWR,
-                opened_as_write: flags & O_ACCMODE == O_WRONLY || flags & O_ACCMODE == O_RDWR,
-                current_perm,
-            }
+            self.open_existing(path, flags, uid, gid)?
         };
 
         let fd = self.next_fd;

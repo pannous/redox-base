@@ -7,7 +7,9 @@ use syscall::error::{
     EACCES, EBADF, EBADFD, EEXIST, EINVAL, EIO, EISDIR, ENOENT, ENOMEM, ENOSYS, ENOTDIR, ENOTEMPTY,
     EOVERFLOW,
 };
-use syscall::flag::{O_ACCMODE, O_CREAT, O_DIRECTORY, O_EXCL, O_RDONLY, O_RDWR, O_STAT, O_WRONLY};
+use syscall::flag::{
+    O_ACCMODE, O_CREAT, O_DIRECTORY, O_EXCL, O_RDONLY, O_RDWR, O_STAT, O_TRUNC, O_WRONLY,
+};
 use syscall::{Error, EventFlags, Map, Result, SchemeMut, Stat, StatVfs, TimeSpec};
 use syscall::{MODE_DIR, MODE_FILE, MODE_PERM, MODE_TYPE, SEEK_CUR, SEEK_END, SEEK_SET};
 
@@ -123,22 +125,18 @@ impl Scheme {
         Ok(0)
     }
 
-    pub fn open_existing(
-        &mut self,
-        path: &[u8],
-        flags: usize,
-        uid: u32,
-        gid: u32,
-    ) -> Result<Handle> {
+    fn open_existing(&mut self, path: &[u8], flags: usize, uid: u32, gid: u32) -> Result<Handle> {
         let inode = self.filesystem.resolve(path, uid, gid)?;
         let file = self
             .filesystem
             .files
             .get_mut(&inode)
             .ok_or(Error::new(EIO))?;
+
         if flags & O_STAT == 0 && flags & O_DIRECTORY != 0 && file.mode & MODE_TYPE != MODE_DIR {
             return Err(Error::new(ENOTDIR));
         }
+
         // Unlike on Linux, which allows directories to be opened without O_DIRECTORY, Redox has no
         // getdents(2) syscall, and thus it adds the additional restriction that directories have
         // to be opened with O_DIRECTORY, if they aren't opened with O_STAT to check whether it's a
@@ -150,13 +148,26 @@ impl Scheme {
         let current_perm = current_perm(file, uid, gid);
         check_permissions(flags, current_perm)?;
 
+        let opened_as_read = flags & O_ACCMODE == O_RDONLY || flags & O_ACCMODE == O_RDWR;
+        let opened_as_write = flags & O_ACCMODE == O_WRONLY || flags & O_ACCMODE == O_RDWR;
+
+        if flags & O_TRUNC == O_TRUNC && opened_as_write {
+            match file.data {
+                // file.data and file.mode should match
+                FileData::Directory(_) => return Err(Error::new(EBADFD)),
+
+                // If we opened an existing file with O_CREAT and O_TRUNC
+                FileData::File(ref mut data) => data.clear(),
+            }
+        }
+
         file.open_handles += 1;
 
         Ok(Handle {
             inode,
             offset: 0,
-            opened_as_read: flags & O_ACCMODE == O_RDONLY || flags & O_ACCMODE == O_RDWR,
-            opened_as_write: flags & O_ACCMODE == O_WRONLY || flags & O_ACCMODE == O_RDWR,
+            opened_as_read,
+            opened_as_write,
             current_perm,
         })
     }

@@ -174,21 +174,22 @@ impl Scheme {
 }
 
 impl SchemeMut for Scheme {
-    fn open(&mut self, path: &[u8], flags: usize, uid: u32, gid: u32) -> Result<usize> {
-        let exists = self.filesystem.resolve(path, 0, 0).is_ok();
+    fn open(&mut self, path: &str, flags: usize, uid: u32, gid: u32) -> Result<usize> {
+        let exists = self.filesystem.resolve(path.as_bytes(), 0, 0).is_ok();
         if flags & O_CREAT != 0 && flags & O_EXCL != 0 && exists {
             return Err(Error::new(EEXIST));
         }
 
         let handle = if flags & O_CREAT != 0 && exists {
-            self.open_existing(path, flags, uid, gid)?
+            self.open_existing(path.as_bytes(), flags, uid, gid)?
         } else if flags & O_CREAT != 0 {
             if flags & O_STAT != 0 {
                 return Err(Error::new(EINVAL));
             }
 
             let (parent_dir_inode, new_name) =
-                self.filesystem.resolve_except_last(path, uid, gid)?;
+                self.filesystem
+                    .resolve_except_last(path.as_bytes(), uid, gid)?;
             let new_name = new_name.ok_or(Error::new(EINVAL))?; // cannot mkdir /
 
             let current_time = filesystem::current_time();
@@ -266,7 +267,7 @@ impl SchemeMut for Scheme {
                 current_perm,
             }
         } else {
-            self.open_existing(path, flags, uid, gid)?
+            self.open_existing(path.as_bytes(), flags, uid, gid)?
         };
 
         let fd = self.next_fd;
@@ -276,8 +277,8 @@ impl SchemeMut for Scheme {
 
         Ok(fd)
     }
-    fn chmod(&mut self, path: &[u8], mode: u16, uid: u32, gid: u32) -> Result<usize> {
-        let inode_num = self.filesystem.resolve(path, uid, gid)?;
+    fn chmod(&mut self, path: &str, mode: u16, uid: u32, gid: u32) -> Result<usize> {
+        let inode_num = self.filesystem.resolve(path.as_bytes(), uid, gid)?;
         let inode = self
             .filesystem
             .files
@@ -295,11 +296,11 @@ impl SchemeMut for Scheme {
         inode.mode = mode | cur_mode;
         Ok(0)
     }
-    fn rmdir(&mut self, path: &[u8], uid: u32, gid: u32) -> Result<usize> {
-        self.remove_dentry(path, uid, gid, true)
+    fn rmdir(&mut self, path: &str, uid: u32, gid: u32) -> Result<usize> {
+        self.remove_dentry(path.as_bytes(), uid, gid, true)
     }
-    fn unlink(&mut self, path: &[u8], uid: u32, gid: u32) -> Result<usize> {
-        self.remove_dentry(path, uid, gid, false)
+    fn unlink(&mut self, path: &str, uid: u32, gid: u32) -> Result<usize> {
+        self.remove_dentry(path.as_bytes(), uid, gid, false)
     }
     fn dup(&mut self, old_fd: usize, _buf: &[u8]) -> Result<usize> {
         let handle = self
@@ -492,7 +493,7 @@ impl SchemeMut for Scheme {
         // TODO
         Err(Error::new(ENOSYS))
     }
-    fn frename(&mut self, fd: usize, path: &[u8], uid: u32, gid: u32) -> Result<usize> {
+    fn frename(&mut self, fd: usize, path: &str, uid: u32, gid: u32) -> Result<usize> {
         if !self.handles.contains_key(&fd) {
             return Err(Error::new(EBADF));
         }

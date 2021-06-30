@@ -13,7 +13,7 @@ pub struct InitFs<'initfs> {
     base: &'initfs [u8],
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Inode(u16);
 
 #[derive(Clone, Copy, Debug)]

@@ -4,7 +4,7 @@ pub const MAGIC: [u8; 8] = *b"RedoxFtw";
 macro_rules! primitive(
     ($wrapper:ident, $bits:expr, $primitive:ident) => {
         #[repr(transparent)]
-        #[derive(Clone, Copy, Debug, Default)]
+        #[derive(Clone, Copy, Default)]
         pub struct $wrapper([u8; $bits / 8]);
 
         impl $wrapper {
@@ -29,6 +29,11 @@ macro_rules! primitive(
         impl From<$wrapper> for $primitive {
             fn from(wrapper: $wrapper) -> Self {
                 wrapper.get()
+            }
+        }
+        impl core::fmt::Debug for $wrapper {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                write!(f, "{:#0width$x}", self.get(), width = 2 * core::mem::size_of::<$primitive>())
             }
         }
     }

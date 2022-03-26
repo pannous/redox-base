@@ -3,12 +3,13 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use clap::{App, Arg};
 
-mod archive;
-use self::archive::*;
+#[path = "../archive_common.rs"]
+mod archive_common;
+use self::archive_common::{self as archive, Args, DEFAULT_MAX_SIZE};
 
 fn main() -> Result<()> {
-    let matches = App::new(clap::crate_name!())
-        .about(clap::crate_description!())
+    let matches = App::new("redox-initfs-ar")
+        .about("create an initfs image from a directory")
         .version(clap::crate_version!())
         .author(clap::crate_authors!())
         .arg(
@@ -58,5 +59,5 @@ fn main() -> Result<()> {
         destination_path: Path::new(destination),
         max_size,
     };
-    self::archive::archive(&args)
+    archive::archive(&args)
 }

@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::{anyhow, bail, Context, Result};
 
-#[path = "../redox-initfs-ar/src/archive.rs"]
+#[path = "../tools/src/archive_common.rs"]
 mod archive;
 
 #[test]

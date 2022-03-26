@@ -204,6 +204,9 @@ impl<'initfs> InitFs<'initfs> {
         plain::from_bytes::<Header>(&self.base[..core::mem::size_of::<Header>()])
             .expect("expected header type to require no alignment, and size to be sufficient")
     }
+    pub fn header(&self) -> &Header {
+        self.get_header_assume_valid()
+    }
     fn header_len_8() -> u8 {
         core::mem::size_of::<Header>()
             .try_into()
@@ -247,6 +250,10 @@ impl<'initfs> InitFs<'initfs> {
             .expect("expected inode struct alignment to be 1")
     }
     pub const ROOT_INODE: Inode = Inode(0);
+
+    pub fn all_inodes(&self) -> impl Iterator<Item = Inode> {
+        (0..self.inode_count()).map(Inode)
+    }
 
     pub fn inode_count(&self) -> u16 {
         self.get_header_assume_valid().inode_count.get()

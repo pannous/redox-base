@@ -27,5 +27,5 @@ anyhow = "1"
 
 [workspace]
 members = [
-  "redox-initfs-ar",
+  "tools",
 ]

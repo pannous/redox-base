@@ -13,18 +13,20 @@ pub unsafe extern "C" fn main(_: libc::c_int, _: *const *const libc::c_char) -> 
             // TODO: Handle this, we can allocate as much as we want in theory.
             panic!("env is too large");
         }
+        let env = &mut env[..bytes_read];
 
         for c in &mut *env {
             if *c == b'\n' {
                 *c = b'\0';
             }
         }
-        let env_count = env.split(|c| *c == b'\0').count();
+        let iter = || env.split(|c| *c == b'\0').filter(|var| !var.is_empty());
+        let env_count = iter().count();
 
-        let envp = libc::calloc(env_count, core::mem::size_of::<*const u8>()) as *mut *const libc::c_char;
+        let envp = libc::calloc(env_count + 1, core::mem::size_of::<*const u8>()) as *mut *const libc::c_char;
         if envp.is_null() { panic!("failed to allocate envp buf"); }
 
-        for (idx, var) in env.split(|c| *c == b'\0').enumerate() {
+        for (idx, var) in iter().enumerate() {
             envp.add(idx).write(var.as_ptr() as *const libc::c_char);
         }
 

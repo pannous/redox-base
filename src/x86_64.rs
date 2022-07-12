@@ -23,10 +23,6 @@ mod offsets {
     pub fn data_and_bss() -> (usize, usize) {
         unsafe { (&__data_start as *const u8 as usize, &__bss_end as *const u8 as usize) }
     }
-    #[allow(dead_code)]
-    pub fn end() -> usize {
-        unsafe { &__end as *const u8 as usize }
-    }
 }
 
 // relibc linkage stuff

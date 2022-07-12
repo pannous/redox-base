@@ -16,6 +16,7 @@ libc = "0.2"
 memoffset = "0.6"
 scroll = { version = "0.10", default-features = false }
 linked_list_allocator = "0.9"
+redox-initfs = { git = "https://gitlab.redox-os.org/redox-os/redox-initfs.git", features = ["kernel"], default-features = false }
 redox_syscall = { git = "https://gitlab.redox-os.org/4lDO2/syscall.git", branch = "userspace_fexec" }
 
 [profile.release]

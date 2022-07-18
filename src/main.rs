@@ -3,10 +3,12 @@ extern crate syscall;
 use std::{fs, io, mem, process, slice, thread};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
+
 use syscall::data::{Packet, SigAction};
-use syscall::daemon::Daemon;
 use syscall::flag::{SigActionFlags, SIGUSR1};
 use syscall::scheme::SchemeBlockMut;
+
+use redox_daemon::Daemon;
 
 use self::scheme::AudioScheme;
 

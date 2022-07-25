@@ -4,7 +4,8 @@ use std::{fs, io, mem, process, slice, thread};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use syscall::data::{Packet, SigAction};
-use syscall::flag::{CloneFlags, SigActionFlags, O_CLOEXEC, SIGUSR1};
+use syscall::daemon::Daemon;
+use syscall::flag::{SigActionFlags, SIGUSR1};
 use syscall::scheme::SchemeBlockMut;
 
 use self::scheme::AudioScheme;
@@ -37,7 +38,7 @@ fn thread(scheme: Arc<Mutex<AudioScheme>>, pid: usize, mut hda_file: fs::File) -
     }
 }
 
-fn daemon(pipe_fd: usize) -> io::Result<()> {
+fn daemon(daemon: Daemon) -> io::Result<()> {
     // Handle signals from the hda thread
     syscall::sigaction(SIGUSR1, Some(&SigAction {
         sa_handler: Some(sigusr_handler),
@@ -51,10 +52,6 @@ fn daemon(pipe_fd: usize) -> io::Result<()> {
 
     let mut scheme_file = fs::OpenOptions::new().create(true).read(true).write(true).open(":audio")?;
 
-    // The scheme is now ready to accept requests, notify the original process
-    syscall::write(pipe_fd, &[1]).map_err(from_syscall_error)?;
-    let _ = syscall::close(pipe_fd);
-
     let scheme = Arc::new(Mutex::new(AudioScheme::new()));
 
     // Spawn a thread to mix and send audio data
@@ -64,6 +61,9 @@ fn daemon(pipe_fd: usize) -> io::Result<()> {
     // Enter the null namespace - done after thread is created so
     // memory: can be accessed for stack allocation
     syscall::setrens(0, 0).map_err(from_syscall_error)?;
+
+    // The scheme is now ready to accept requests, notify the original process
+    daemon.ready().map_err(from_syscall_error)?;
 
     let mut todo = Vec::new();
     loop {
@@ -99,26 +99,18 @@ fn daemon(pipe_fd: usize) -> io::Result<()> {
     }
 }
 
-fn audiod() -> io::Result<()> {
-    let mut pipe = [0; 2];
-    syscall::pipe2(&mut pipe, O_CLOEXEC).map_err(from_syscall_error)?;
-
-    // Daemonize
-    if unsafe { syscall::clone(CloneFlags::empty()) }.map_err(from_syscall_error)? == 0 {
-        let _ = syscall::close(pipe[0]);
-        return daemon(pipe[1]);
-    } else {
-        let _ = syscall::close(pipe[1]);
-
-        syscall::read(pipe[0], &mut [0]).map_err(from_syscall_error)?;
-        let _  = syscall::close(pipe[0]);
-
-        Ok(())
-    }
-}
-
 fn main() {
-    if let Err(err) =  audiod() {
+    if let Err(err) = Daemon::new(|x| {
+        match daemon(x) {
+            Ok(()) => {
+                process::exit(0);
+            },
+            Err(err) => {
+                eprintln!("audiod: {}", err);
+                process::exit(1);
+            }
+        }
+    }) {
         eprintln!("audiod: {}", err);
         process::exit(1);
     }

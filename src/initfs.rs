@@ -138,34 +138,38 @@ impl SchemeMut for InitFsScheme {
         Ok(id)
     }
 
-    fn read(&mut self, id: usize, buffer: &mut [u8]) -> Result<usize> {
+    fn read(&mut self, id: usize, mut buffer: &mut [u8]) -> Result<usize> {
         let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
 
         match Self::get_inode(&self.fs, handle.inode)?.kind() {
             InodeKind::Dir(dir) => {
                 let mut bytes_read = 0;
-                let mut bytes_skipped = 0;
+                let mut total_to_skip = handle.seek;
 
                 for entry_res in (Iter { dir, idx: 0 }) {
                     let entry = entry_res?;
                     let name = entry.name().map_err(|_| Error::new(EIO))?;
-                    let entry_len = name.len() + 1;
 
-                    let to_skip = core::cmp::min(handle.seek - bytes_skipped, entry_len);
+                    let to_skip = core::cmp::min(total_to_skip, name.len() + 1);
+                    if to_skip == name.len() + 1 { continue; }
 
-                    let to_copy = entry_len.saturating_sub(to_skip).saturating_sub(1);
-                    buffer[bytes_read..bytes_read + to_copy].copy_from_slice(&name[..to_copy]);
+                    let name = &name[to_skip..];
 
-                    if to_copy.saturating_sub(to_skip) == 1 {
-                        buffer[bytes_read + to_copy] = b'\n';
+                    let to_copy = core::cmp::min(name.len(), buffer.len());
+                    buffer[..to_copy].copy_from_slice(&name[..to_copy]);
+                    bytes_read += to_copy;
+                    buffer = &mut buffer[to_copy..];
+
+                    if !buffer.is_empty() {
+                        buffer[0] = b'\n';
                         bytes_read += 1;
+                        buffer = &mut buffer[1..];
                     }
 
-                    bytes_read += to_copy;
-                    bytes_skipped += to_skip;
+                    total_to_skip -= to_skip;
                 }
 
-                handle.seek = handle.seek.checked_add(bytes_read).ok_or(Error::new(EOVERFLOW))?;
+                handle.seek = handle.seek.saturating_add(bytes_read);
 
                 Ok(bytes_read)
             }

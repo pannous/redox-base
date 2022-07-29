@@ -26,7 +26,7 @@ mod offsets {
 }
 
 #[no_mangle]
-pub unsafe extern "sysv64" fn start() -> ! {
+pub unsafe extern "C" fn start() -> ! {
     // Remap self, from the previous RWX
 
     let (text_start, text_end) = offsets::text();

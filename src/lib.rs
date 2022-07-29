@@ -1,11 +1,9 @@
 #![no_std]
 #![feature(alloc_error_handler, core_intrinsics, lang_items, panic_info_message)]
 
-#[cfg(target_arch = "x86_64")]
-pub mod x86_64;
-
 pub mod exec;
 pub mod initfs;
+pub mod start;
 
 extern crate alloc;
 
@@ -40,6 +38,10 @@ fn alloc_error_handler(_: core::alloc::Layout) -> ! {
 #[lang = "eh_personality"]
 extern "C" fn rust_eh_personality() {}
 
+#[cfg(target_pointer_width = "32")]
+const HEAP_OFF: usize = 0x4000_0000;
+
+#[cfg(target_pointer_width = "64")]
 const HEAP_OFF: usize = 0x4000_0000_0000;
 
 struct Allocator;

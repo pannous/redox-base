@@ -1,4 +1,4 @@
-BITS 64
+BITS 32
 
 section .text
 

@@ -8,8 +8,8 @@ extern start
 ustart:
   ; Setup a stack.
   mov eax, 0x21000384 ; SYS_CLASS_FILE+SYS_ARG_SLICE+SYS_MMAP
-  mov edi, 0xFFFFFFFF ; dummy `fd`, indicates anonymous map
-  mov esi, map ; pointer to Map struct
+  mov ebx, 0xFFFFFFFF ; dummy `fd`, indicates anonymous map
+  mov ecx, map ; pointer to Map struct
   mov edx, map_size ; size of Map struct
   int 0x80
 

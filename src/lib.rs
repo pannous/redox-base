@@ -1,5 +1,21 @@
 #![no_std]
-#![feature(alloc_error_handler, core_intrinsics, lang_items, panic_info_message)]
+#![feature(
+    asm_const,
+    asm_sym,
+    alloc_error_handler,
+    core_intrinsics,
+    lang_items,
+    naked_functions,
+    panic_info_message
+)]
+
+#[cfg(target_arch = "x86")]
+#[path = "i686.rs"]
+pub mod arch;
+
+#[cfg(target_arch = "x86_64")]
+#[path = "x86_64.rs"]
+pub mod arch;
 
 pub mod exec;
 pub mod initfs;

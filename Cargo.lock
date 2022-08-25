@@ -96,7 +96,7 @@ dependencies = [
 [[package]]
 name = "redox-exec"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#adbdf1d73daa6f807aee359a6a63c2cef44a5791"
+source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#38576a37abfd7ac5ceb6b52ceea97368c3ad91fd"
 dependencies = [
  "goblin",
  "plain",

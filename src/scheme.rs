@@ -3,8 +3,8 @@ use syscall::error::{EBADF, EWOULDBLOCK, Error, Result};
 use syscall::flag::O_NONBLOCK;
 use syscall::scheme::SchemeBlockMut;
 
-// The strict buffer size of the hda: driver
-const HDA_BUFFER_SIZE: usize = 512;
+// The strict buffer size of the audiohw: driver
+const HW_BUFFER_SIZE: usize = 512;
 // The desired buffer size of each handle
 const HANDLE_BUFFER_SIZE: usize = 4096;
 
@@ -26,8 +26,8 @@ impl AudioScheme {
         }
     }
 
-    pub fn buffer(&mut self) -> [(i16, i16); HDA_BUFFER_SIZE] {
-        let mut buffer = [(0i16, 0i16); HDA_BUFFER_SIZE];
+    pub fn buffer(&mut self) -> [(i16, i16); HW_BUFFER_SIZE] {
+        let mut buffer = [(0i16, 0i16); HW_BUFFER_SIZE];
 
         for (_id, handle) in self.handles.iter_mut() {
             let mut i = 0;

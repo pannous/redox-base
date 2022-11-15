@@ -20,7 +20,7 @@ fn from_syscall_error(error: syscall::Error) -> io::Error {
 
 extern "C" fn sigusr_handler(_sig: usize) {}
 
-fn thread(scheme: Arc<Mutex<AudioScheme>>, pid: usize, mut hda_file: fs::File) -> io::Result<()> {
+fn thread(scheme: Arc<Mutex<AudioScheme>>, pid: usize, mut hw_file: fs::File) -> io::Result<()> {
     // Enter null namespace
     syscall::setrens(0, 0).map_err(from_syscall_error)?;
 
@@ -36,12 +36,12 @@ fn thread(scheme: Arc<Mutex<AudioScheme>>, pid: usize, mut hda_file: fs::File) -
         // Wake up the scheme thread
         syscall::kill(pid, SIGUSR1).map_err(from_syscall_error)?;
 
-        hda_file.write(&buffer_u8)?;
+        hw_file.write(&buffer_u8)?;
     }
 }
 
 fn daemon(daemon: Daemon) -> io::Result<()> {
-    // Handle signals from the hda thread
+    // Handle signals from the hw thread
     syscall::sigaction(SIGUSR1, Some(&SigAction {
         sa_handler: Some(sigusr_handler),
         sa_mask: [0; 2],
@@ -50,7 +50,7 @@ fn daemon(daemon: Daemon) -> io::Result<()> {
 
     let pid = syscall::getpid().map_err(from_syscall_error)?;
 
-    let hda_file = fs::OpenOptions::new().write(true).open("hda:")?;
+    let hw_file = fs::OpenOptions::new().write(true).open("audiohw:")?;
 
     let mut scheme_file = fs::OpenOptions::new().create(true).read(true).write(true).open(":audio")?;
 
@@ -58,7 +58,7 @@ fn daemon(daemon: Daemon) -> io::Result<()> {
 
     // Spawn a thread to mix and send audio data
     let scheme_thread = scheme.clone();
-    let _thread = thread::spawn(move || thread(scheme_thread, pid, hda_file));
+    let _thread = thread::spawn(move || thread(scheme_thread, pid, hw_file));
 
     // Enter the null namespace - done after thread is created so
     // memory: can be accessed for stack allocation

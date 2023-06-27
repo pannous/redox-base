@@ -1,6 +1,7 @@
 use alloc::borrow::ToOwned;
 use alloc::vec::Vec;
 
+use syscall::{Error, EINTR};
 use syscall::flag::{O_CLOEXEC, O_RDONLY};
 
 use redox_exec::*;
@@ -45,11 +46,6 @@ pub fn main() -> ! {
         iter().map(|var| var.to_owned()).collect::<Vec<_>>()
     };
     unsafe {
-        use syscall::flag::MapFlags;
-        // XXX: It may be a little unsafe to mprotect this after relibc has started, but since only
-        // the bootloader can influence the data we use, it should be fine security-wise.
-        let _ = syscall::mprotect(initfs_offset, initfs_length, MapFlags::PROT_READ | MapFlags::MAP_PRIVATE).expect("mprotect failed for initfs");
-
         spawn_initfs(initfs_offset, initfs_length);
     }
     const CWD: &[u8] = b"initfs:";
@@ -86,7 +82,12 @@ unsafe fn spawn_initfs(initfs_start: usize, initfs_length: usize) {
         // Return in order to execute init, as the parent.
         Ok(_) => {
             let _ = syscall::close(write);
-            let _ = syscall::read(read, &mut [0]);
+            loop {
+                match syscall::read(read, &mut [0]) {
+                    Err(Error { errno: EINTR }) => continue,
+                    _ => break,
+                }
+            }
 
             return;
         }

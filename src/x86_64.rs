@@ -6,6 +6,9 @@ use syscall::{
 };
 
 const STACK_SIZE: usize = 64 * 1024; // 64 KiB
+
+pub const STACK_START: usize = 0x0000_8000_0000_0000 - STACK_SIZE;
+
 static MAP: Map = Map {
     offset: 0,
     size: STACK_SIZE,
@@ -13,7 +16,7 @@ static MAP: Map = Map {
             .union(MapFlags::PROT_WRITE)
             .union(MapFlags::MAP_PRIVATE)
             .union(MapFlags::MAP_FIXED_NOREPLACE),
-    address: 0x0000_8000_0000_0000 - STACK_SIZE, // highest possible user address
+    address: STACK_START, // highest possible user address
 };
 
 #[naked]

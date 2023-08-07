@@ -12,8 +12,7 @@ crate-type = ["staticlib"]
 [dependencies]
 linked_list_allocator = "0.9"
 redox-initfs = { git = "https://gitlab.redox-os.org/redox-os/redox-initfs.git", features = ["kernel"], default-features = false }
-#redox-exec = { git = "https://gitlab.redox-os.org/redox-os/relibc.git" }
-redox-exec = { path = "../../../../relibc/src/platform/redox/redox-exec" }
+redox-exec = { git = "https://gitlab.redox-os.org/redox-os/relibc.git" }
 redox_syscall = "0.3.2"
 
 [profile.release]
@@ -23,4 +22,4 @@ panic = "abort"
 panic = "abort"
 
 [patch.crates-io]
-redox_syscall = { path = "../../kernel/source/syscall" }
+redox_syscall = { git = "https://gitlab.redox-os.org/redox-os/syscall.git" }

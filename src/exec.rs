@@ -48,12 +48,12 @@ pub fn main() -> ! {
     unsafe {
         spawn_initfs(initfs_offset, initfs_length);
     }
-    const CWD: &[u8] = b"initfs:";
+    const CWD: &[u8] = b"/scheme/initfs";
     let extrainfo = redox_exec::ExtraInfo {
         cwd: Some(CWD),
     };
 
-    let path = "initfs:bin/init";
+    let path = "/scheme/initfs/bin/init";
     let total_args_envs_auxvpointee_size = path.len() + 1 + envs.len() + envs.iter().map(|v| v.len()).sum::<usize>() + CWD.len() + 1;
 
     let image_file = FdGuard::new(syscall::open(path, O_RDONLY).expect("failed to open init"));

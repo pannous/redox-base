@@ -18,42 +18,40 @@ static MAP: Map = Map {
     address: STACK_START, // highest possible user address
 };
 
-#[naked]
-#[no_mangle]
-pub unsafe extern "C" fn ustart() {
-    core::arch::asm!(
-        "
-        // Setup a stack.
-        ldr x8, ={number}
-        ldr x0, ={fd}
-        ldr x1, ={map} // pointer to Map struct
-        ldr x2, ={map_size} // size of Map struct
-        svc 0
+core::arch::global_asm!(
+    "
+    .globl ustart
+    ustart:
+    // Setup a stack.
+    ldr x8, ={number}
+    ldr x0, ={fd}
+    ldr x1, ={map} // pointer to Map struct
+    ldr x2, ={map_size} // size of Map struct
+    svc 0
 
-        // Failure if return value is zero
-        cbz x0, 1f
+    // Failure if return value is zero
+    cbz x0, 1f
 
-        // Failure if return value is negative
-        tbnz x0, 63, 1f
+    // Failure if return value is negative
+    tbnz x0, 63, 1f
 
-        // Set up stack frame
-        mov sp, x0
-        add sp, sp, #{stack_size}
-        mov fp, sp
+    // Set up stack frame
+    mov sp, x0
+    add sp, sp, #{stack_size}
+    mov fp, sp
 
-        // Stack has the same alignment as `size`.
-        bl start
-        // `start` must never return.
+    // Stack has the same alignment as `size`.
+    bl start
+    // `start` must never return.
 
-        // failure, emit undefined instruction
-        1:
-        udf #0
-        ",
-        fd = const usize::MAX, // dummy fd indicates anonymous map
-        map = sym MAP,
-        map_size = const mem::size_of::<Map>(),
-        number = const SYS_FMAP,
-        stack_size = const STACK_SIZE,
-        options(noreturn),
-    );
-}
+    // failure, emit undefined instruction
+    1:
+    udf #0
+    ",
+    fd = const usize::MAX, // dummy fd indicates anonymous map
+    map = sym MAP,
+    map_size = const mem::size_of::<Map>(),
+    number = const SYS_FMAP,
+    stack_size = const STACK_SIZE,
+    options(noreturn),
+);

@@ -4,7 +4,6 @@
     alloc_error_handler,
     core_intrinsics,
     lang_items,
-    naked_functions,
     panic_info_message
 )]
 

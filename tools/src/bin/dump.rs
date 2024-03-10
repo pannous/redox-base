@@ -1,23 +1,24 @@
+use std::ffi::OsString;
+
 use anyhow::{Context, Result};
-use clap::{App, Arg};
+use clap::{Arg, Command};
 
 use redox_initfs::InitFs;
 
 fn main() -> Result<()> {
-    let matches = App::new("redox-initfs-dump")
+    let matches = Command::new("redox-initfs-dump")
         .about("dump initfs metadata")
         .version(clap::crate_version!())
         .author(clap::crate_authors!())
         .arg(
-            Arg::with_name("IMAGE")
-                .takes_value(true)
+            Arg::new("IMAGE")
                 .required(true)
-                .help("specify the image to dump")
+                .help("specify the image to dump"),
         )
         .get_matches();
 
     let source = matches
-        .value_of_os("IMAGE")
+        .get_one::<OsString>("IMAGE")
         .expect("expected the required arg IMAGE to exist");
 
     let bytes = std::fs::read(source).context("failed to read image into memory")?;
@@ -35,7 +36,12 @@ fn main() -> Result<()> {
                 continue;
             }
         };
-        print!("mode={:#0o}, uid={}, gid={}, kind=", inode_struct.mode(), inode_struct.uid(), inode_struct.gid());
+        print!(
+            "mode={:#0o}, uid={}, gid={}, kind=",
+            inode_struct.mode(),
+            inode_struct.uid(),
+            inode_struct.gid()
+        );
 
         use redox_initfs::InodeKind;
 
@@ -67,7 +73,11 @@ fn main() -> Result<()> {
                             continue;
                         }
                     };
-                    println!("\t`{}` => {:?},", String::from_utf8_lossy(name), entry.inode());
+                    println!(
+                        "\t`{}` => {:?},",
+                        String::from_utf8_lossy(name),
+                        entry.inode()
+                    );
                 }
 
                 println!("]}}");

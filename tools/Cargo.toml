@@ -18,7 +18,7 @@ name = "redox-initfs-dump"
 
 [dependencies]
 anyhow = "1"
-clap = "2.33"
+clap = { version = "4", features = ["cargo"] }
 env_logger = "0.8"
 log = "0.4"
 plain = "0.2"

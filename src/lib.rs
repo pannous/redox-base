@@ -1,7 +1,6 @@
 #![no_std]
 #![feature(
     asm_const,
-    alloc_error_handler,
     core_intrinsics,
 )]
 
@@ -39,11 +38,6 @@ fn panic_handler(info: &core::panic::PanicInfo) -> ! {
     }
 
     let _ = writeln!(&mut Writer, "{}", info);
-    core::intrinsics::abort();
-}
-
-#[alloc_error_handler]
-fn alloc_error_handler(_: core::alloc::Layout) -> ! {
     core::intrinsics::abort();
 }
 

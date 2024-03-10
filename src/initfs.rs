@@ -1,9 +1,11 @@
 use core::convert::TryFrom;
+#[allow(deprecated)]
+use core::hash::{BuildHasherDefault, SipHasher};
 use core::str;
 
-use alloc::collections::BTreeMap;
 use alloc::string::String;
 
+use hashbrown::HashMap;
 use redox_initfs::{InitFs, InodeStruct, Inode, InodeDir, InodeKind, types::Timespec};
 
 use syscall::data::{Packet, Stat};
@@ -19,14 +21,15 @@ struct Handle {
     filename: String,
 }
 pub struct InitFsScheme {
-    handles: BTreeMap<usize, Handle>,
+    #[allow(deprecated)]
+    handles: HashMap<usize, Handle, BuildHasherDefault<SipHasher>>,
     next_id: usize,
     fs: InitFs<'static>,
 }
 impl InitFsScheme {
     pub fn new(bytes: &'static [u8]) -> Self {
         Self {
-            handles: BTreeMap::new(),
+            handles: HashMap::default(),
             next_id: 0,
             fs: InitFs::new(bytes).expect("failed to parse initfs"),
         }

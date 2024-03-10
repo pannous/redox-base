@@ -1,4 +1,4 @@
-ENTRY(ustart)
+ENTRY(_start)
 OUTPUT_FORMAT(elf32-i386)
 
 SECTIONS {
@@ -34,7 +34,6 @@ SECTIONS {
     . = ALIGN(4096);
     __bss_end = .;
   }
-  __end = .;
 
   /DISCARD/ : {
       *(.comment*)

@@ -1,11 +1,7 @@
 #![no_std]
 #![feature(
     asm_const,
-    alloc_error_handler,
     core_intrinsics,
-    lang_items,
-    naked_functions,
-    panic_info_message
 )]
 
 #[cfg(target_arch = "aarch64")]
@@ -41,21 +37,9 @@ fn panic_handler(info: &core::panic::PanicInfo) -> ! {
         }
     }
 
-    let _ = syscall::write(1, b"panic: ");
-    if let Some(message) = info.message() {
-        writeln!(&mut Writer, "{}", message).unwrap();
-    } else {
-        let _ = syscall::write(1, b"(explicit panic)\n");
-    }
+    let _ = writeln!(&mut Writer, "{}", info);
     core::intrinsics::abort();
 }
-
-#[alloc_error_handler]
-fn alloc_error_handler(_: core::alloc::Layout) -> ! {
-    core::intrinsics::abort();
-}
-#[lang = "eh_personality"]
-extern "C" fn rust_eh_personality() {}
 
 #[cfg(target_pointer_width = "32")]
 const HEAP_OFF: usize = 0x4000_0000;

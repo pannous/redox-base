@@ -7,8 +7,6 @@ use syscall::flag::{O_CLOEXEC, O_RDONLY};
 use redox_exec::*;
 
 pub fn main() -> ! {
-    let initfs_length;
-
     let envs = {
         let mut env = [0_u8; 4096];
 
@@ -23,21 +21,6 @@ pub fn main() -> ! {
 
         let raw_iter = || env.split(|c| *c == b'\n').filter(|var| !var.is_empty());
 
-        let mut initfs_length_opt = None;
-
-        for var in raw_iter() {
-            let equal_sign = var.iter().position(|c| *c == b'=').expect("malformed environment variable");
-            let name = &var[..equal_sign];
-            let value = &var[equal_sign + 1..];
-
-            match name {
-                b"INITFS_LENGTH" => initfs_length_opt = core::str::from_utf8(value).ok().and_then(|s| usize::from_str_radix(s, 16).ok()),
-
-                _ => continue,
-            }
-        }
-        initfs_length = initfs_length_opt.expect("missing INITFS_LENGTH");
-
         let iter = || raw_iter().filter(|var| !var.starts_with(b"INITFS_"));
 
         iter().map(|var| var.to_owned()).collect::<Vec<_>>()
@@ -48,10 +31,12 @@ pub fn main() -> ! {
         static __initfs_header: u8;
     }
 
+    let initfs_length = unsafe { (*(core::ptr::addr_of!(__initfs_header) as *const redox_initfs::types::Header)).initfs_size };
+
     unsafe {
         // Creating a reference to NULL is UB. Mask the UB for now using black_box.
         // FIXME use a raw pointer and inline asm for reading instead for the initfs header.
-        spawn_initfs(core::ptr::addr_of!(__initfs_header), initfs_length);
+        spawn_initfs(core::ptr::addr_of!(__initfs_header), initfs_length.get() as usize);
     }
     const CWD: &[u8] = b"/scheme/initfs";
     let extrainfo = redox_exec::ExtraInfo {

@@ -487,6 +487,7 @@ pub fn archive(
             inode_count: state.inode_count.into(),
             inode_table_offset,
             bootstrap_entry: bootstrap_entry.into(),
+            initfs_size: state.file.metadata().context("failed to get initfs size")?.len().into(),
         };
         write_all_at(&*state.file, &header_bytes, header_offset, "writing header")
             .context("failed to write header")?;

@@ -53,5 +53,4 @@ core::arch::global_asm!(
     map_size = const mem::size_of::<Map>(),
     number = const SYS_FMAP,
     stack_size = const STACK_SIZE,
-    options(noreturn),
 );

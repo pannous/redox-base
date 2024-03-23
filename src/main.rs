@@ -3,7 +3,7 @@ use std::{env, process};
 mod filesystem;
 mod scheme;
 
-use redox_scheme::SignalBehavior;
+use redox_scheme::{RequestKind, SignalBehavior};
 
 use self::scheme::Scheme;
 
@@ -23,10 +23,15 @@ fn main() {
             let Some(request) = socket.next_request(SignalBehavior::Restart).expect("ramfs: failed to get next scheme request") else {
                 break;
             };
+            match request.kind() {
+                RequestKind::Call(call) => {
+                    let response = call.handle_scheme_mut(&mut scheme);
 
-            let response = request.handle_scheme_mut(&mut scheme);
+                    socket.write_responses(&[response], SignalBehavior::Restart).expect("ramfs: failed to write next scheme response");
+                }
+                _ => (),
+            }
 
-            socket.write_responses(&[response], SignalBehavior::Restart).expect("ramfs: failed to write next scheme response");
         }
 
         process::exit(0);

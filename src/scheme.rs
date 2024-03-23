@@ -279,25 +279,6 @@ impl SchemeMut for Scheme {
 
         Ok(fd)
     }
-    fn chmod(&mut self, path: &str, mode: u16, uid: u32, gid: u32) -> Result<usize> {
-        let inode_num = self.filesystem.resolve(path.as_bytes(), uid, gid)?;
-        let inode = self
-            .filesystem
-            .files
-            .get_mut(&inode_num)
-            .ok_or(Error::new(EIO))?;
-
-        let cur_mode = inode.mode & MODE_TYPE;
-
-        if inode.uid != uid && uid != 0 {
-            return Err(Error::new(EACCES));
-        }
-        if mode & MODE_TYPE != 0 {
-            return Err(Error::new(EINVAL));
-        }
-        inode.mode = mode | cur_mode;
-        Ok(0)
-    }
     fn rmdir(&mut self, path: &str, uid: u32, gid: u32) -> Result<usize> {
         self.remove_dentry(path.as_bytes(), uid, gid, true)
     }
@@ -400,12 +381,15 @@ impl SchemeMut for Scheme {
             }
 
             // if there's a seek hole, fill it with 0 and continue writing.
-            if handle.offset > bytes.len() {
-                let additional = handle.offset - bytes.len();
+            let end_off = handle.offset.checked_add(buf.len()).ok_or(Error::new(EOVERFLOW))?;
+            if end_off > bytes.len() {
+                let additional = end_off - bytes.len();
                 bytes.try_reserve(additional).or(Err(Error::new(ENOMEM)))?;
-                bytes.resize(handle.offset, 0u8);
+                bytes.resize(end_off, 0u8);
             }
-            bytes.extend(buf);
+            bytes[handle.offset..][..buf.len()].copy_from_slice(buf);
+            handle.offset = end_off;
+
             Ok(buf.len())
         } else {
             Err(Error::new(EISDIR))
@@ -419,7 +403,6 @@ impl SchemeMut for Scheme {
             .get_mut(&handle.inode)
             .ok_or(Error::new(EBADFD))?;
 
-        let old = handle.offset;
         handle.offset = match whence {
             SEEK_SET => cmp::max(0, pos),
             SEEK_CUR => cmp::max(
@@ -444,9 +427,11 @@ impl SchemeMut for Scheme {
 
         let cur_type = file.mode & MODE_TYPE;
 
+        /*
         if mode & MODE_TYPE != 0 {
             return Err(Error::new(EINVAL));
         }
+        */
 
         file.mode = mode | cur_type;
 

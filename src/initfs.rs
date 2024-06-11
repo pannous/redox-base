@@ -8,9 +8,10 @@ use alloc::string::String;
 use hashbrown::HashMap;
 use redox_initfs::{InitFs, InodeStruct, Inode, InodeDir, InodeKind, types::Timespec};
 
+use redox_scheme::CallerCtx;
 use redox_scheme::OpenResult;
 use redox_scheme::RequestKind;
-use redox_scheme::SchemeV2;
+use redox_scheme::SchemeMut;
 
 use redox_scheme::SignalBehavior;
 use redox_scheme::Socket;
@@ -84,8 +85,8 @@ fn inode_len(inode: InodeStruct<'static>) -> Result<usize> {
     })
 }
 
-impl SchemeV2 for InitFsScheme {
-    fn open(&mut self, path: &str, _flags: usize) -> Result<OpenResult> {
+impl SchemeMut for InitFsScheme {
+    fn xopen(&mut self, path: &str, _flags: usize, ctx: &CallerCtx) -> Result<OpenResult> {
         let mut components = path
             // trim leading and trailing slash
             .trim_matches('/')
@@ -197,12 +198,12 @@ impl SchemeV2 for InitFsScheme {
         }
     }
 
-    fn seek(&mut self, id: usize, pos: i64, whence: usize) -> Result<u64> {
+    fn seek(&mut self, id: usize, pos: isize, whence: usize) -> Result<isize> {
         let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
 
-        let new_offset = redox_scheme::calc_seek_offset_usize(handle.seek, pos as isize, whence, inode_len(Self::get_inode(&self.fs, handle.inode)?)?)?;
+        let new_offset = redox_scheme::calc_seek_offset_usize(handle.seek, pos, whence, inode_len(Self::get_inode(&self.fs, handle.inode)?)?)?;
         handle.seek = new_offset as usize;
-        Ok(new_offset as u64)
+        Ok(new_offset)
     }
 
     fn fcntl(&mut self, id: usize, _cmd: usize, _arg: usize) -> Result<usize> {
@@ -246,17 +247,17 @@ impl SchemeV2 for InitFsScheme {
         Ok(0)
     }
 
-    fn fsync(&mut self, id: usize) -> Result<()> {
+    fn fsync(&mut self, id: usize) -> Result<usize> {
         if !self.handles.contains_key(&id) {
             return Err(Error::new(EBADF));
         }
 
-        Ok(())
+        Ok(0)
     }
 
-    fn close(&mut self, id: usize) -> Result<()> {
+    fn close(&mut self, id: usize) -> Result<usize> {
         let _ = self.handles.remove(&id).ok_or(Error::new(EBADF))?;
-        Ok(())
+        Ok(0)
     }
 }
 

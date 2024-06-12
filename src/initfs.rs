@@ -19,10 +19,10 @@ use redox_scheme::V2;
 use syscall::data::Stat;
 use syscall::error::*;
 use syscall::flag::*;
+use syscall::schemev2::NewFdFlags;
 
 struct Handle {
     inode: Inode,
-    seek: usize,
     // TODO: Any better way to implement fpath? Or maybe work around it, e.g. by giving paths such
     // as `initfs:__inodes__/<inode>`?
     filename: String,
@@ -140,21 +140,24 @@ impl SchemeMut for InitFsScheme {
         let id = self.next_id();
         let old = self.handles.insert(id, Handle {
             inode: current_inode,
-            seek: 0_usize,
             filename: path.into(),
         });
         assert!(old.is_none());
 
-        Ok(OpenResult::ThisScheme { number: id })
+        Ok(OpenResult::ThisScheme { number: id, flags: NewFdFlags::POSITIONED })
     }
 
-    fn read(&mut self, id: usize, mut buffer: &mut [u8]) -> Result<usize> {
+    fn read(&mut self, id: usize, mut buffer: &mut [u8], offset: u64, _fcntl_flags: u32) -> Result<usize> {
+        let Ok(offset) = usize::try_from(offset) else {
+            return Ok(0);
+        };
+
         let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
 
         match Self::get_inode(&self.fs, handle.inode)?.kind() {
             InodeKind::Dir(dir) => {
                 let mut bytes_read = 0;
-                let mut total_to_skip = handle.seek;
+                let mut total_to_skip = offset;
 
                 for entry_res in (Iter { dir, idx: 0 }) {
                     let entry = entry_res?;
@@ -179,18 +182,14 @@ impl SchemeMut for InitFsScheme {
                     total_to_skip -= to_skip;
                 }
 
-                handle.seek = handle.seek.saturating_add(bytes_read);
-
                 Ok(bytes_read)
             }
             InodeKind::File(file) => {
                 let data = file.data().map_err(|_| Error::new(EIO))?;
-                let src_buf = &data[core::cmp::min(handle.seek, data.len())..];
+                let src_buf = &data[core::cmp::min(offset, data.len())..];
 
                 let to_copy = core::cmp::min(src_buf.len(), buffer.len());
                 buffer[..to_copy].copy_from_slice(&src_buf[..to_copy]);
-
-                handle.seek = handle.seek.checked_add(to_copy).ok_or(Error::new(EOVERFLOW))?;
 
                 Ok(to_copy)
             }
@@ -198,12 +197,10 @@ impl SchemeMut for InitFsScheme {
         }
     }
 
-    fn seek(&mut self, id: usize, pos: isize, whence: usize) -> Result<isize> {
+    fn fsize(&mut self, id: usize) -> Result<u64> {
         let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
 
-        let new_offset = redox_scheme::calc_seek_offset_usize(handle.seek, pos, whence, inode_len(Self::get_inode(&self.fs, handle.inode)?)?)?;
-        handle.seek = new_offset as usize;
-        Ok(new_offset)
+        Ok(inode_len(Self::get_inode(&self.fs, handle.inode)?)? as u64)
     }
 
     fn fcntl(&mut self, id: usize, _cmd: usize, _arg: usize) -> Result<usize> {

@@ -16,7 +16,7 @@ redox-initfs = { git = "https://gitlab.redox-os.org/redox-os/redox-initfs.git", 
 #redox-exec = { git = "https://gitlab.redox-os.org/redox-os/relibc.git" }
 redox-exec = { git = "https://gitlab.redox-os.org/redox-os/relibc.git" }
 redox_syscall = "0.5.1"
-redox-scheme = { git = "https://gitlab.redox-os.org/4lDO2/redox-scheme.git", branch = "schemev2" }
+redox-scheme = { git = "https://gitlab.redox-os.org/4lDO2/redox-scheme.git", branch = "schemev2plus" }
 
 [profile.release]
 panic = "abort"
@@ -26,4 +26,4 @@ lto = "fat"
 panic = "abort"
 
 [patch.crates-io]
-redox_syscall = { git = "https://gitlab.redox-os.org/4lDO2/syscall.git", branch = "schemev2" }
+redox_syscall = { git = "https://gitlab.redox-os.org/4lDO2/syscall.git", branch = "schemev2plus" }

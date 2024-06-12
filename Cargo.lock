@@ -130,7 +130,7 @@ dependencies = [
 [[package]]
 name = "redox-scheme"
 version = "0.2.0"
-source = "git+https://gitlab.redox-os.org/4lDO2/redox-scheme.git?branch=schemev2#40c29c6f08e095e7b3739feae47a3c24f469c4d3"
+source = "git+https://gitlab.redox-os.org/4lDO2/redox-scheme.git?branch=schemev2plus#ca239589c873374a17715b637be1f9385345721c"
 dependencies = [
  "libredox",
  "redox_syscall",
@@ -139,7 +139,7 @@ dependencies = [
 [[package]]
 name = "redox_syscall"
 version = "0.5.1"
-source = "git+https://gitlab.redox-os.org/4lDO2/syscall.git?branch=schemev2#495a0adbd8333fd21fae2d97129b094607878ba7"
+source = "git+https://gitlab.redox-os.org/4lDO2/syscall.git?branch=schemev2plus#35600d6c9c46a4d54ec17d80c9ff5d17ef79a052"
 dependencies = [
  "bitflags",
 ]

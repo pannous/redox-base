@@ -8,14 +8,21 @@ use alloc::string::String;
 use hashbrown::HashMap;
 use redox_initfs::{InitFs, InodeStruct, Inode, InodeDir, InodeKind, types::Timespec};
 
-use syscall::data::{Packet, Stat};
+use redox_scheme::CallerCtx;
+use redox_scheme::OpenResult;
+use redox_scheme::RequestKind;
+use redox_scheme::SchemeMut;
+
+use redox_scheme::SignalBehavior;
+use redox_scheme::Socket;
+use redox_scheme::V2;
+use syscall::data::Stat;
 use syscall::error::*;
 use syscall::flag::*;
-use syscall::scheme::{calc_seek_offset_usize, SchemeMut};
+use syscall::schemev2::NewFdFlags;
 
 struct Handle {
     inode: Inode,
-    seek: usize,
     // TODO: Any better way to implement fpath? Or maybe work around it, e.g. by giving paths such
     // as `initfs:__inodes__/<inode>`?
     filename: String,
@@ -79,7 +86,7 @@ fn inode_len(inode: InodeStruct<'static>) -> Result<usize> {
 }
 
 impl SchemeMut for InitFsScheme {
-    fn open(&mut self, path: &str, _flags: usize, _uid: u32, _gid: u32) -> Result<usize> {
+    fn xopen(&mut self, path: &str, _flags: usize, ctx: &CallerCtx) -> Result<OpenResult> {
         let mut components = path
             // trim leading and trailing slash
             .trim_matches('/')
@@ -133,21 +140,24 @@ impl SchemeMut for InitFsScheme {
         let id = self.next_id();
         let old = self.handles.insert(id, Handle {
             inode: current_inode,
-            seek: 0_usize,
             filename: path.into(),
         });
         assert!(old.is_none());
 
-        Ok(id)
+        Ok(OpenResult::ThisScheme { number: id, flags: NewFdFlags::POSITIONED })
     }
 
-    fn read(&mut self, id: usize, mut buffer: &mut [u8]) -> Result<usize> {
+    fn read(&mut self, id: usize, mut buffer: &mut [u8], offset: u64, _fcntl_flags: u32) -> Result<usize> {
+        let Ok(offset) = usize::try_from(offset) else {
+            return Ok(0);
+        };
+
         let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
 
         match Self::get_inode(&self.fs, handle.inode)?.kind() {
             InodeKind::Dir(dir) => {
                 let mut bytes_read = 0;
-                let mut total_to_skip = handle.seek;
+                let mut total_to_skip = offset;
 
                 for entry_res in (Iter { dir, idx: 0 }) {
                     let entry = entry_res?;
@@ -172,18 +182,14 @@ impl SchemeMut for InitFsScheme {
                     total_to_skip -= to_skip;
                 }
 
-                handle.seek = handle.seek.saturating_add(bytes_read);
-
                 Ok(bytes_read)
             }
             InodeKind::File(file) => {
                 let data = file.data().map_err(|_| Error::new(EIO))?;
-                let src_buf = &data[core::cmp::min(handle.seek, data.len())..];
+                let src_buf = &data[core::cmp::min(offset, data.len())..];
 
                 let to_copy = core::cmp::min(src_buf.len(), buffer.len());
                 buffer[..to_copy].copy_from_slice(&src_buf[..to_copy]);
-
-                handle.seek = handle.seek.checked_add(to_copy).ok_or(Error::new(EOVERFLOW))?;
 
                 Ok(to_copy)
             }
@@ -191,12 +197,10 @@ impl SchemeMut for InitFsScheme {
         }
     }
 
-    fn seek(&mut self, id: usize, pos: isize, whence: usize) -> Result<isize> {
+    fn fsize(&mut self, id: usize) -> Result<u64> {
         let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
 
-        let new_offset = calc_seek_offset_usize(handle.seek, pos, whence, inode_len(Self::get_inode(&self.fs, handle.inode)?)?)?;
-        handle.seek = new_offset as usize;
-        Ok(new_offset)
+        Ok(inode_len(Self::get_inode(&self.fs, handle.inode)?)? as u64)
     }
 
     fn fcntl(&mut self, id: usize, _cmd: usize, _arg: usize) -> Result<usize> {
@@ -257,33 +261,49 @@ impl SchemeMut for InitFsScheme {
 pub fn run(bytes: &'static [u8], sync_pipe: usize) -> ! {
     let mut scheme = InitFsScheme::new(bytes);
 
-    let socket = syscall::open(":initfs", O_RDWR | O_CLOEXEC | O_CREAT)
+    let socket = Socket::<V2>::create("initfs")
         .expect("failed to open initfs scheme socket");
 
     let _ = syscall::write(sync_pipe, &[0]);
     let _ = syscall::close(sync_pipe);
 
-    let mut packet = Packet::default();
+    loop {
+        let RequestKind::Call(req) = (match socket.next_request(SignalBehavior::Restart).expect("bootstrap: failed to read scheme request from kernel") {
+            Some(req) => req.kind(),
+            None => break,
+        }) else {
+            continue;
+        };
+        let resp = req.handle_scheme_mut(&mut scheme);
 
-    'packets: loop {
-        loop {
-            match syscall::read(socket, &mut packet) {
-                Ok(0) => break 'packets,
-                Ok(_) => break,
-                Err(error) if error == Error::new(EINTR) => continue,
-                Err(error) => panic!("failed to read from scheme socket: {}", error),
-            }
-        }
-        scheme.handle(&mut packet);
-        loop {
-            match syscall::write(socket, &packet) {
-                Ok(0) => break 'packets,
-                Ok(_) => break,
-                Err(error) if error == Error::new(EINTR) => continue,
-                Err(error) => panic!("failed to write to scheme socket: {}", error),
-            }
+        if !socket.write_response(resp, SignalBehavior::Restart).expect("bootstrap: failed to write scheme response to kernel") {
+            break;
         }
     }
+
     syscall::exit(0).expect("initfs: failed to exit");
     unreachable!()
+}
+
+// TODO: Restructure bootstrap so it calls into relibc, or a split-off derivative without the C
+// parts, such as "redox-rt".
+
+#[no_mangle]
+pub unsafe extern "C" fn redox_read_v1(fd: usize, ptr: *mut u8, len: usize) -> isize {
+    Error::mux(syscall::read(fd, core::slice::from_raw_parts_mut(ptr, len))) as isize
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn redox_write_v1(fd: usize, ptr: *const u8, len: usize) -> isize {
+    Error::mux(syscall::write(fd, core::slice::from_raw_parts(ptr, len))) as isize
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn redox_open_v1(ptr: *const u8, len: usize, flags: usize) -> isize {
+    Error::mux(syscall::open(core::str::from_raw_parts(ptr, len), flags)) as isize
+}
+
+#[no_mangle]
+pub extern "C" fn redox_close_v1(fd: usize) -> isize {
+    Error::mux(syscall::close(fd)) as isize
 }

@@ -94,7 +94,7 @@ fn inode_len(inode: InodeStruct<'static>) -> Result<usize> {
 }
 
 impl SchemeMut for InitFsScheme {
-    fn xopen(&mut self, path: &str, flags: usize, ctx: &CallerCtx) -> Result<OpenResult> {
+    fn xopen(&mut self, path: &str, flags: usize, _ctx: &CallerCtx) -> Result<OpenResult> {
         let mut components = path
             // trim leading and trailing slash
             .trim_matches('/')
@@ -122,7 +122,7 @@ impl SchemeMut for InitFsScheme {
                 InodeKind::Dir(dir) => dir,
 
                 // TODO: Support symlinks in other position than xopen target
-                InodeKind::Link(link) => {
+                InodeKind::Link(_) => {
                     return Err(Error::new(EOPNOTSUPP));
                 }
 

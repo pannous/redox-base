@@ -14,6 +14,10 @@ pub mod arch;
 #[path = "x86_64.rs"]
 pub mod arch;
 
+#[cfg(target_arch = "riscv64")]
+#[path = "riscv64.rs"]
+pub mod arch;
+
 pub mod exec;
 pub mod initfs;
 pub mod start;
@@ -41,11 +45,7 @@ fn panic_handler(info: &core::panic::PanicInfo) -> ! {
     core::intrinsics::abort();
 }
 
-#[cfg(target_pointer_width = "32")]
-const HEAP_OFF: usize = 0x4000_0000;
-
-#[cfg(target_pointer_width = "64")]
-const HEAP_OFF: usize = 0x4000_0000_0000;
+const HEAP_OFF: usize = arch::USERMODE_END / 2;
 
 struct Allocator;
 #[global_allocator]

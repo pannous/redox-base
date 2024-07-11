@@ -10,7 +10,9 @@ pub fn main() -> ! {
     let envs = {
         let mut env = [0_u8; 4096];
 
-        let fd = FdGuard::new(syscall::open("sys:env", O_RDONLY).expect("bootstrap: failed to open env"));
+        let fd = FdGuard::new(
+            syscall::open("/scheme/sys/env", O_RDONLY).expect("bootstrap: failed to open env"),
+        );
         let bytes_read = syscall::read(*fd, &mut env).expect("bootstrap: failed to read env");
 
         if bytes_read >= env.len() {
@@ -49,8 +51,11 @@ pub fn main() -> ! {
     let total_args_envs_auxvpointee_size = path.len() + 1 + envs.len() + envs.iter().map(|v| v.len()).sum::<usize>() + CWD.len() + 1;
 
     let image_file = FdGuard::new(syscall::open(path, O_RDONLY).expect("failed to open init"));
-    let open_via_dup = FdGuard::new(syscall::open("thisproc:current/open_via_dup", 0).expect("failed to open open_via_dup"));
-    let memory = FdGuard::new(syscall::open("memory:", 0).expect("failed to open memory"));
+    let open_via_dup = FdGuard::new(
+        syscall::open("/scheme/thisproc/current/open_via_dup", 0)
+            .expect("failed to open open_via_dup"),
+    );
+    let memory = FdGuard::new(syscall::open("/scheme/memory", 0).expect("failed to open memory"));
 
     fexec_impl(image_file, open_via_dup, &memory, path.as_bytes(), [path], envs.iter(), total_args_envs_auxvpointee_size, &extrainfo, None).expect("failed to execute init");
 
@@ -58,7 +63,7 @@ pub fn main() -> ! {
 }
 
 unsafe fn spawn_initfs(initfs_start: *const u8, initfs_length: usize) {
-    let read = syscall::open("pipe:", O_CLOEXEC).expect("failed to open sync read pipe");
+    let read = syscall::open("/scheme/pipe", O_CLOEXEC).expect("failed to open sync read pipe");
 
     // The write pipe will not inherit O_CLOEXEC, but is closed by the daemon later.
     let write = syscall::dup(read, b"write").expect("failed to open sync write pipe");

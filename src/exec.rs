@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use syscall::{Error, EINTR};
 use syscall::flag::{O_CLOEXEC, O_RDONLY};
 
-use redox_exec::*;
+use redox_rt::proc::*;
 
 pub fn main() -> ! {
     let envs = {
@@ -41,7 +41,7 @@ pub fn main() -> ! {
         spawn_initfs(core::ptr::addr_of!(__initfs_header), initfs_length.get() as usize);
     }
     const CWD: &[u8] = b"/scheme/initfs";
-    let extrainfo = redox_exec::ExtraInfo {
+    let extrainfo = ExtraInfo {
         cwd: Some(CWD),
         sigprocmask: 0,
         sigignmask: 0,
@@ -68,7 +68,7 @@ unsafe fn spawn_initfs(initfs_start: *const u8, initfs_length: usize) {
     // The write pipe will not inherit O_CLOEXEC, but is closed by the daemon later.
     let write = syscall::dup(read, b"write").expect("failed to open sync write pipe");
 
-    match redox_exec::fork_impl() {
+    match fork_impl() {
         Err(err) => {
             panic!("Failed to fork in order to start initfs daemon: {}", err);
         }

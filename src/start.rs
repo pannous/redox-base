@@ -42,6 +42,8 @@ pub unsafe extern "C" fn start() -> ! {
     let _ = syscall::mprotect(data_start, data_end - data_start, MapFlags::PROT_READ | MapFlags::PROT_WRITE | MapFlags::MAP_PRIVATE).expect("mprotect failed for .data/.bss");
     let _ = syscall::mprotect(data_end, crate::arch::STACK_START - data_end, MapFlags::PROT_READ | MapFlags::MAP_PRIVATE).expect("mprotect failed for rest of memory");
 
+    redox_rt::initialize_freestanding();
+
     // FIXME make the initfs read-only
 
     crate::exec::main();

@@ -57,14 +57,14 @@ pub struct Offset(pub U32);
 #[derive(Clone, Copy, Debug)]
 pub struct Length(pub U32);
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Clone, Copy, Debug)]
 pub struct Timespec {
     pub sec: U64,
     pub nsec: U32,
 }
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Clone, Copy, Debug)]
 pub struct Header {
     pub magic: Magic,
@@ -80,7 +80,7 @@ const _: () = {
     assert!(offset_of!(Header, bootstrap_entry) == 0x1a);
 };
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Clone, Copy, Debug)]
 pub struct InodeHeader {
     pub type_and_mode: U32,
@@ -104,7 +104,7 @@ pub enum InodeType {
     // All other bit patterns are reserved... for now. TODO: Add symlinks?
 }
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Clone, Copy, Debug)]
 pub struct DirEntry {
     pub inode: U16,

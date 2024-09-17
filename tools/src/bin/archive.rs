@@ -3,9 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use clap::{Arg, Command};
 
-#[path = "../archive_common.rs"]
-mod archive_common;
-use self::archive_common::{self as archive, Args, DEFAULT_MAX_SIZE};
+use archive_common::{self as archive, Args, DEFAULT_MAX_SIZE};
 
 fn main() -> Result<()> {
     let matches = Command::new("redox-initfs-ar")
@@ -19,6 +17,7 @@ fn main() -> Result<()> {
                 .required(false)
                 .help("Set the upper limit for how large the image can become (default 64 MiB)."),
         )
+        // TODO: support non-utf8 paths (applies to other paths as well)
         .arg(
             Arg::new("SOURCE")
                 .required(true)
@@ -27,7 +26,7 @@ fn main() -> Result<()> {
         .arg(
             Arg::new("BOOTSTRAP_CODE")
                 .required(false)
-                .help("Specify the bootstrap ELF file to include in the image.")
+                .help("Specify the bootstrap ELF file to include in the image."),
         )
         .arg(
             Arg::new("OUTPUT")
@@ -60,7 +59,7 @@ fn main() -> Result<()> {
 
     let args = Args {
         source: Path::new(source),
-        bootstrap_code: bootstrap_code.map(|bootstrap_code| Path::new(bootstrap_code)),
+        bootstrap_code: bootstrap_code.map(Path::new),
         destination_path: Path::new(destination),
         max_size,
     };

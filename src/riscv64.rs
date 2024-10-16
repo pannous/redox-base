@@ -2,7 +2,7 @@ use core::mem;
 use syscall::{data::Map, flag::MapFlags, number::SYS_FMAP};
 
 const STACK_SIZE: usize = 64 * 1024; // 64 KiB
-pub const USERMODE_END: usize = 0x8000_0000;
+pub const USERMODE_END: usize = 1 << 47; // Assuming Sv48; it should work with Sv57 also
 pub const STACK_START: usize = USERMODE_END - STACK_SIZE;
 
 static MAP: Map = Map {
@@ -18,28 +18,26 @@ static MAP: Map = Map {
 core::arch::global_asm!(
     "
     .globl _start
-    _start:
+_start:
     # Setup a stack.
-    mov eax, {number}
-    mov ebx, {fd}
-    mov ecx, offset {map} # pointer to Map struct
-    mov edx, {map_size} # size of Map struct
-    int 0x80
+    li a7, {number}
+    li a0, {fd}
+    la a1, {map} # pointer to Map struct
+    li a2, {map_size} # size of Map struct
+    ecall
 
     # Test for success (nonzero value).
-    cmp eax, 0
-    jg 1f
+    bne a0, x0, 2f
     # (failure)
-    ud2
-    1:
-    # Subtract 16 since all instructions seem to hate non-canonical ESP values :)
-    lea esp, [eax+{stack_size}-16]
-    mov ebp, esp
+    unimp
+2:
+    li sp, {stack_size}
+    add sp, sp, a0
+    mv fp, x0
 
-    # Stack has the same alignment as `size`.
-    call start
+    jal start
     # `start` must never return.
-    ud2
+    unimp
     ",
     fd = const usize::MAX, // dummy fd indicates anonymous map
     map = sym MAP,

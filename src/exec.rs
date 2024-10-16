@@ -52,6 +52,7 @@ pub fn main() -> ! {
         default_scheme: Some(DEFAULT_SCHEME),
         sigprocmask: 0,
         sigignmask: 0,
+        umask: redox_rt::sys::get_umask(),
     };
 
     let path = "/scheme/initfs/bin/init";

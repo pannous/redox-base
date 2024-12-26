@@ -49,9 +49,17 @@ pub fn main() -> ! {
         );
     });
 
-    spawn("process manager", move |write_fd| {
-        crate::procmngr::run(write_fd)
+    let auth = FdGuard::new(syscall::open("/scheme/kernel.proc/authority", O_CLOEXEC).expect("failed to get proc authority"));
+
+    spawn("process manager", |write_fd| {
+        crate::procmngr::run(write_fd, &auth)
     });
+    let this_thr_fd = FdGuard::new(
+        syscall::dup(*auth, b"cur-context").expect("failed to open open_via_dup"),
+    );
+    let (init_proc_fd, init_thr_fd) = unsafe {
+        redox_rt::proc::make_init(this_thr_fd)
+    };
 
     const CWD: &[u8] = b"/scheme/initfs";
     const DEFAULT_SCHEME: &[u8] = b"initfs";
@@ -74,18 +82,12 @@ pub fn main() -> ! {
         + 1;
 
     let image_file = FdGuard::new(syscall::open(path, O_RDONLY).expect("failed to open init"));
-    let open_via_dup = FdGuard::new(
-        syscall::open("/scheme/thisproc/current", 0).expect("failed to open open_via_dup"),
-    );
     let memory = FdGuard::new(syscall::open("/scheme/memory", 0).expect("failed to open memory"));
-
-    unsafe {
-        redox_rt::proc::make_init();
-    }
 
     fexec_impl(
         image_file,
-        open_via_dup,
+        init_proc_fd,
+        init_thr_fd,
         &memory,
         path.as_bytes(),
         [path],

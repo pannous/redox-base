@@ -9,14 +9,9 @@ use hashbrown::HashMap;
 use redox_initfs::{types::Timespec, InitFs, Inode, InodeDir, InodeKind, InodeStruct};
 
 use redox_path::canonicalize_to_standard;
-use redox_scheme::CallerCtx;
-use redox_scheme::OpenResult;
-use redox_scheme::RequestKind;
-use redox_scheme::SchemeMut;
+use redox_scheme::{CallerCtx, OpenResult, RequestKind, Scheme};
 
-use redox_scheme::SignalBehavior;
-use redox_scheme::Socket;
-use redox_scheme::V2;
+use redox_scheme::{SignalBehavior, Socket};
 use syscall::data::Stat;
 use syscall::dirent::DirEntry;
 use syscall::dirent::DirentBuf;
@@ -93,7 +88,7 @@ fn inode_len(inode: InodeStruct<'static>) -> Result<usize> {
     })
 }
 
-impl SchemeMut for InitFsScheme {
+impl Scheme for InitFsScheme {
     fn xopen(&mut self, path: &str, flags: usize, _ctx: &CallerCtx) -> Result<OpenResult> {
         let mut components = path
             // trim leading and trailing slash
@@ -317,7 +312,7 @@ impl SchemeMut for InitFsScheme {
 pub fn run(bytes: &'static [u8], sync_pipe: usize) -> ! {
     let mut scheme = InitFsScheme::new(bytes);
 
-    let socket = Socket::<V2>::create("initfs").expect("failed to open initfs scheme socket");
+    let socket = Socket::create("initfs").expect("failed to open initfs scheme socket");
 
     let _ = syscall::write(sync_pipe, &[0]);
     let _ = syscall::close(sync_pipe);
@@ -332,7 +327,7 @@ pub fn run(bytes: &'static [u8], sync_pipe: usize) -> ! {
         }) else {
             continue;
         };
-        let resp = req.handle_scheme_mut(&mut scheme);
+        let resp = req.handle_scheme(&mut scheme);
 
         if !socket
             .write_response(resp, SignalBehavior::Restart)

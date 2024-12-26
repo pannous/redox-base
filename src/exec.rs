@@ -49,7 +49,9 @@ pub fn main() -> ! {
         );
     });
 
-    spawn("process manager", move |write_fd| crate::procmngr::run(write_fd));
+    spawn("process manager", move |write_fd| {
+        crate::procmngr::run(write_fd)
+    });
 
     const CWD: &[u8] = b"/scheme/initfs";
     const DEFAULT_SCHEME: &[u8] = b"initfs";
@@ -73,12 +75,13 @@ pub fn main() -> ! {
 
     let image_file = FdGuard::new(syscall::open(path, O_RDONLY).expect("failed to open init"));
     let open_via_dup = FdGuard::new(
-        syscall::open("/scheme/thisproc/current", 0)
-            .expect("failed to open open_via_dup"),
+        syscall::open("/scheme/thisproc/current", 0).expect("failed to open open_via_dup"),
     );
     let memory = FdGuard::new(syscall::open("/scheme/memory", 0).expect("failed to open memory"));
 
-    redox_rt::proc::make_init();
+    unsafe {
+        redox_rt::proc::make_init();
+    }
 
     fexec_impl(
         image_file,

@@ -37,14 +37,20 @@ pub fn main() -> ! {
         (*(core::ptr::addr_of!(__initfs_header) as *const redox_initfs::types::Header)).initfs_size
     };
 
-    unsafe {
+    spawn("initfs daemon", move |write_fd| unsafe {
         // Creating a reference to NULL is UB. Mask the UB for now using black_box.
         // FIXME use a raw pointer and inline asm for reading instead for the initfs header.
-        spawn_initfs(
-            core::ptr::addr_of!(__initfs_header),
-            initfs_length.get() as usize,
+        let initfs_start = core::ptr::addr_of!(__initfs_header);
+        let initfs_length = initfs_length.get() as usize;
+
+        crate::initfs::run(
+            core::slice::from_raw_parts(initfs_start, initfs_length),
+            write_fd,
         );
-    }
+    });
+
+    spawn("process manager", move |write_fd| crate::procmngr::run(write_fd));
+
     const CWD: &[u8] = b"/scheme/initfs";
     const DEFAULT_SCHEME: &[u8] = b"initfs";
     let extrainfo = ExtraInfo {
@@ -67,10 +73,12 @@ pub fn main() -> ! {
 
     let image_file = FdGuard::new(syscall::open(path, O_RDONLY).expect("failed to open init"));
     let open_via_dup = FdGuard::new(
-        syscall::open("/scheme/thisproc/current/open_via_dup", 0)
+        syscall::open("/scheme/thisproc/current", 0)
             .expect("failed to open open_via_dup"),
     );
     let memory = FdGuard::new(syscall::open("/scheme/memory", 0).expect("failed to open memory"));
+
+    redox_rt::proc::make_init();
 
     fexec_impl(
         image_file,
@@ -88,7 +96,7 @@ pub fn main() -> ! {
     unreachable!()
 }
 
-unsafe fn spawn_initfs(initfs_start: *const u8, initfs_length: usize) {
+pub(crate) fn spawn(name: &str, inner: impl FnOnce(usize)) {
     let read = syscall::open("/scheme/pipe", O_CLOEXEC).expect("failed to open sync read pipe");
 
     // The write pipe will not inherit O_CLOEXEC, but is closed by the daemon later.
@@ -96,7 +104,7 @@ unsafe fn spawn_initfs(initfs_start: *const u8, initfs_length: usize) {
 
     match fork_impl() {
         Err(err) => {
-            panic!("Failed to fork in order to start initfs daemon: {}", err);
+            panic!("Failed to fork in order to start {name}: {err}");
         }
         // Continue serving the scheme as the child.
         Ok(0) => {
@@ -115,8 +123,5 @@ unsafe fn spawn_initfs(initfs_start: *const u8, initfs_length: usize) {
             return;
         }
     }
-    crate::initfs::run(
-        core::slice::from_raw_parts(initfs_start, initfs_length),
-        write,
-    );
+    inner(write);
 }

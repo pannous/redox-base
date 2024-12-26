@@ -342,7 +342,6 @@ pub fn run(bytes: &'static [u8], sync_pipe: usize) -> ! {
         }
     }
 
-    syscall::exit(0).expect("initfs: failed to exit");
     unreachable!()
 }
 

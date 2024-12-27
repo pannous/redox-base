@@ -1,8 +1,9 @@
 use core::cell::RefCell;
+use core::mem::size_of;
 
 use alloc::rc::Rc;
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
 use hashbrown::hash_map::DefaultHashBuilder;
 use hashbrown::{HashMap, HashSet};
@@ -13,7 +14,9 @@ use redox_scheme::{
 };
 use slab::Slab;
 use syscall::schemev2::NewFdFlags;
-use syscall::{Error, FobtainFdFlags, Result, EBADF, EBADFD, EEXIST, EINVAL, ENOENT, O_CLOEXEC, O_CREAT};
+use syscall::{
+    Error, FobtainFdFlags, Result, EBADF, EBADFD, EEXIST, EINVAL, ENOENT, O_CLOEXEC, O_CREAT,
+};
 
 pub fn run(write_fd: usize, auth: &FdGuard) {
     let socket = Socket::create("proc").expect("failed to open proc scheme socket");
@@ -157,9 +160,7 @@ impl<'a> ProcScheme<'a> {
         self.processes.insert(
             child_pid,
             Process {
-                threads: vec! [Rc::new(RefCell::new(Thread {
-                    fd: new_ctxt_fd,
-                }))],
+                threads: vec![Rc::new(RefCell::new(Thread { fd: new_ctxt_fd }))],
                 ppid: parent_pid,
                 pgid,
                 sid,
@@ -176,8 +177,7 @@ impl<'a> ProcScheme<'a> {
     fn new_thread(&mut self, pid: ProcessId) -> Result<FdGuard> {
         let proc = self.processes.get_mut(&pid).ok_or(Error::new(EBADFD))?;
         let fd = todo!();
-        proc.threads
-            .push(Rc::new(RefCell::new(Thread { fd })));
+        proc.threads.push(Rc::new(RefCell::new(Thread { fd })));
         Ok(fd)
     }
 }
@@ -188,22 +188,26 @@ impl Scheme for ProcScheme<'_> {
                 return Err(Error::new(EEXIST));
             }
             return Ok(OpenResult::ThisScheme {
-                number: self
-                    .handles
-                    .insert(Handle::Init),
+                number: self.handles.insert(Handle::Init),
                 flags: NewFdFlags::empty(),
             });
         }
         Err(Error::new(ENOENT))
     }
-    fn read(&mut self, id: usize, buf: &mut [u8], _offset: u64, _fcntl_flags: u32) -> Result<usize> {
+    fn read(
+        &mut self,
+        id: usize,
+        buf: &mut [u8],
+        _offset: u64,
+        _fcntl_flags: u32,
+    ) -> Result<usize> {
         match self.handles[id] {
             Handle::Proc(pid) => {
                 let process = self.processes.get(&pid).ok_or(Error::new(EBADFD))?;
                 let metadata = ProcMeta {
-                    pid: pid.into(),
-                    pgid: process.pgid.into(),
-                    ppid: process.ppid.into(),
+                    pid: pid.0 as u32,
+                    pgid: process.pgid.0 as u32,
+                    ppid: process.ppid.0 as u32,
                     euid: process.euid,
                     egid: process.egid,
                     ruid: process.ruid,
@@ -211,6 +215,10 @@ impl Scheme for ProcScheme<'_> {
                     ens: process.ens,
                     rns: process.rns,
                 };
+                *buf.get_mut(..size_of::<ProcMeta>())
+                    .and_then(|b| plain::from_mut_bytes(b).ok())
+                    .ok_or(Error::new(EINVAL))? = metadata;
+                Ok(size_of::<ProcMeta>())
             }
             Handle::Init => return Err(Error::new(EBADF)),
         }
@@ -224,16 +232,21 @@ impl Scheme for ProcScheme<'_> {
                         number: self.handles.insert(Handle::Proc(child_pid)),
                         flags: NewFdFlags::empty(),
                     })
-                },
+                }
                 b"new-thread" => Ok(OpenResult::OtherScheme {
                     fd: self.new_thread(pid)?.take(),
                 }),
-                w if w.starts_with("thread-") => {
-                    let idx = core::str::from_utf8(&w["thread-".len()..]).ok().and_then(|s| s.parse::<usize>().ok()).ok_or(Error::new(EINVAL))?;
+                w if w.starts_with(b"thread-") => {
+                    let idx = core::str::from_utf8(&w["thread-".len()..])
+                        .ok()
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .ok_or(Error::new(EINVAL))?;
                     let process = self.processes.get(&pid).ok_or(Error::new(EBADFD))?;
                     let thread = process.threads.get(idx).ok_or(Error::new(ENOENT))?.borrow();
 
-                    return Ok(OpenResult::OtherScheme { fd: syscall::dup(*thread.fd, &[])? });
+                    return Ok(OpenResult::OtherScheme {
+                        fd: syscall::dup(*thread.fd, &[])?,
+                    });
                 }
                 _ => return Err(Error::new(EINVAL)),
             },

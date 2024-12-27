@@ -7,6 +7,14 @@ use syscall::{Error, EINTR};
 use redox_rt::proc::*;
 
 pub fn main() -> ! {
+    let auth = FdGuard::new(
+        syscall::open("/scheme/kernel.proc/authority", O_CLOEXEC)
+            .expect("failed to get proc authority"),
+    );
+    let this_thr_fd =
+        FdGuard::new(syscall::dup(*auth, b"cur-context").expect("failed to open open_via_dup"));
+    let this_thr_fd = unsafe { redox_rt::initialize_freestanding(this_thr_fd) };
+
     let envs = {
         let mut env = [0_u8; 4096];
 
@@ -37,29 +45,27 @@ pub fn main() -> ! {
         (*(core::ptr::addr_of!(__initfs_header) as *const redox_initfs::types::Header)).initfs_size
     };
 
-    spawn("initfs daemon", move |write_fd| unsafe {
-        // Creating a reference to NULL is UB. Mask the UB for now using black_box.
-        // FIXME use a raw pointer and inline asm for reading instead for the initfs header.
-        let initfs_start = core::ptr::addr_of!(__initfs_header);
-        let initfs_length = initfs_length.get() as usize;
+    spawn(
+        "initfs daemon",
+        &auth,
+        &this_thr_fd,
+        move |write_fd| unsafe {
+            // Creating a reference to NULL is UB. Mask the UB for now using black_box.
+            // FIXME use a raw pointer and inline asm for reading instead for the initfs header.
+            let initfs_start = core::ptr::addr_of!(__initfs_header);
+            let initfs_length = initfs_length.get() as usize;
 
-        crate::initfs::run(
-            core::slice::from_raw_parts(initfs_start, initfs_length),
-            write_fd,
-        );
-    });
+            crate::initfs::run(
+                core::slice::from_raw_parts(initfs_start, initfs_length),
+                write_fd,
+            );
+        },
+    );
 
-    let auth = FdGuard::new(syscall::open("/scheme/kernel.proc/authority", O_CLOEXEC).expect("failed to get proc authority"));
-
-    spawn("process manager", |write_fd| {
+    spawn("process manager", &auth, &this_thr_fd, |write_fd| {
         crate::procmngr::run(write_fd, &auth)
     });
-    let this_thr_fd = FdGuard::new(
-        syscall::dup(*auth, b"cur-context").expect("failed to open open_via_dup"),
-    );
-    let (init_proc_fd, init_thr_fd) = unsafe {
-        redox_rt::proc::make_init(this_thr_fd)
-    };
+    let init_proc_fd = unsafe { redox_rt::proc::make_init() };
 
     const CWD: &[u8] = b"/scheme/initfs";
     const DEFAULT_SCHEME: &[u8] = b"initfs";
@@ -86,8 +92,8 @@ pub fn main() -> ! {
 
     fexec_impl(
         image_file,
+        this_thr_fd,
         init_proc_fd,
-        init_thr_fd,
         &memory,
         path.as_bytes(),
         [path],
@@ -101,13 +107,13 @@ pub fn main() -> ! {
     unreachable!()
 }
 
-pub(crate) fn spawn(name: &str, inner: impl FnOnce(usize)) {
+pub(crate) fn spawn(name: &str, auth: &FdGuard, this_thr_fd: &FdGuard, inner: impl FnOnce(usize)) {
     let read = syscall::open("/scheme/pipe", O_CLOEXEC).expect("failed to open sync read pipe");
 
     // The write pipe will not inherit O_CLOEXEC, but is closed by the daemon later.
     let write = syscall::dup(read, b"write").expect("failed to open sync write pipe");
 
-    match fork_impl() {
+    match fork_impl(&ForkArgs::Init { this_thr_fd, auth }) {
         Err(err) => {
             panic!("Failed to fork in order to start {name}: {err}");
         }

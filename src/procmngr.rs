@@ -1,23 +1,31 @@
 use core::cell::RefCell;
+use core::hash::BuildHasherDefault;
 use core::mem::size_of;
+use core::task::Poll;
+use core::task::Poll::*;
 
+use alloc::collections::VecDeque;
 use alloc::rc::Rc;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use hashbrown::hash_map::DefaultHashBuilder;
+use hashbrown::hash_map::{DefaultHashBuilder, Entry, OccupiedEntry};
 use hashbrown::{HashMap, HashSet};
 use redox_rt::proc::FdGuard;
-use redox_rt::protocol::ProcMeta;
+use redox_rt::protocol::{ProcCall, ProcMeta};
+use redox_scheme::scheme::Op;
 use redox_scheme::{
-    CallerCtx, OpenResult, RequestKind, Response, Scheme, SendFdRequest, SignalBehavior, Socket,
+    CallerCtx, Id, OpenResult, RequestKind, Response, SendFdRequest, SignalBehavior, Socket,
 };
 use slab::Slab;
 use syscall::schemev2::NewFdFlags;
 use syscall::{
-    Error, FobtainFdFlags, ProcSchemeAttrs, Result, EBADF, EBADFD, EEXIST, EINVAL, ENOENT,
-    O_CLOEXEC, O_CREAT,
+    Error, FobtainFdFlags, ProcSchemeAttrs, Result, EBADF, EBADFD, EEXIST, EINVAL, ENOENT, ENOSYS,
+    EOPNOTSUPP, EPERM, O_CLOEXEC, O_CREAT,
 };
+enum PendingState {
+    Waiting,
+}
 
 pub fn run(write_fd: usize, auth: &FdGuard) {
     let socket = Socket::create("proc").expect("failed to open proc scheme socket");
@@ -27,7 +35,24 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
     let _ = syscall::write(write_fd, &[0]);
     let _ = syscall::close(write_fd);
 
+    let mut states = HashMap::<Id, PendingState, DefaultHashBuilder>::new();
+    let mut awoken = VecDeque::<Id>::new();
+
     loop {
+        for awoken in awoken.drain(..) {
+            let Entry::Occupied(entry) = states.entry(awoken) else {
+                continue;
+            };
+            match scheme.work_on(entry) {
+                Ready(resp) => {
+                    socket
+                        .write_response(resp, SignalBehavior::Restart)
+                        .expect("bootstrap: failed to write scheme response to kernel");
+                }
+                Pending => continue,
+            }
+        }
+
         let Some(req) = socket
             .next_request(SignalBehavior::Restart)
             .expect("bootstrap: failed to read scheme request from kernel")
@@ -35,7 +60,34 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
             continue;
         };
         let resp = match req.kind() {
-            RequestKind::Call(req) => req.handle_scheme(&mut scheme),
+            RequestKind::Call(req) => {
+                let res = req.with(|req, caller, op| match op {
+                    Op::Open { path, flags } => {
+                        Ready(Response::open_dup_like(&req, scheme.on_open(path, flags)))
+                    }
+                    Op::Dup { old_fd, buf } => {
+                        Ready(Response::open_dup_like(&req, scheme.on_dup(old_fd, buf)))
+                    }
+                    Op::Read { fd, buf, .. } => Ready(Response::new(&req, scheme.on_read(fd, buf))),
+                    Op::Call {
+                        fd,
+                        payload,
+                        metadata,
+                    } => scheme
+                        .on_call(
+                            fd,
+                            payload,
+                            metadata,
+                            states.entry(req.request().request_id()),
+                        )
+                        .map(|r| Response::new(&req, r)),
+                    _ => Ready(Response::new(&req, Err(Error::new(ENOSYS)))),
+                });
+                match res {
+                    Ok(Ready(r)) | Err(r) => r,
+                    Ok(Pending) => continue,
+                }
+            }
             RequestKind::SendFd(req) => scheme.on_sendfd(&socket, &req),
             _ => continue,
         };
@@ -194,9 +246,7 @@ impl<'a> ProcScheme<'a> {
         proc.threads.push(Rc::new(RefCell::new(Thread { fd })));
         Ok(fd)
     }
-}
-impl Scheme for ProcScheme<'_> {
-    fn xopen(&mut self, path: &str, flags: usize, ctx: &CallerCtx) -> Result<OpenResult> {
+    fn on_open(&mut self, path: &str, flags: usize) -> Result<OpenResult> {
         if path == "init" {
             if core::mem::replace(&mut self.init_claimed, true) {
                 return Err(Error::new(EEXIST));
@@ -208,13 +258,7 @@ impl Scheme for ProcScheme<'_> {
         }
         Err(Error::new(ENOENT))
     }
-    fn read(
-        &mut self,
-        id: usize,
-        buf: &mut [u8],
-        _offset: u64,
-        _fcntl_flags: u32,
-    ) -> Result<usize> {
+    fn on_read(&mut self, id: usize, buf: &mut [u8]) -> Result<usize> {
         match self.handles[id] {
             Handle::Proc(pid) => {
                 let process = self.processes.get(&pid).ok_or(Error::new(EBADFD))?;
@@ -237,7 +281,7 @@ impl Scheme for ProcScheme<'_> {
             Handle::Init => return Err(Error::new(EBADF)),
         }
     }
-    fn xdup(&mut self, old_id: usize, buf: &[u8], ctx: &CallerCtx) -> Result<OpenResult> {
+    fn on_dup(&mut self, old_id: usize, buf: &[u8]) -> Result<OpenResult> {
         match self.handles[old_id] {
             Handle::Proc(pid) => match buf {
                 b"fork" => {
@@ -265,6 +309,105 @@ impl Scheme for ProcScheme<'_> {
                 _ => return Err(Error::new(EINVAL)),
             },
             Handle::Init => Err(Error::new(EBADF)),
+        }
+    }
+    pub fn on_call(
+        &mut self,
+        id: usize,
+        payload: &mut [u8],
+        metadata: &[u64],
+        state: Entry<Id, PendingState, DefaultHashBuilder>,
+    ) -> Poll<Result<usize>> {
+        match self.handles[id] {
+            Handle::Init => Ready(Err(Error::new(EBADF))),
+            Handle::Proc(pid) => {
+                let verb =
+                    ProcCall::try_from_raw(metadata[0] as usize).ok_or(Error::new(EINVAL))?;
+                fn cvt_u32(u: u32) -> Option<u32> {
+                    if u == u32::MAX {
+                        None
+                    } else {
+                        Some(u)
+                    }
+                }
+                match verb {
+                    ProcCall::Setrens => Ready(
+                        self.on_setrens(
+                            pid,
+                            cvt_u32(metadata[1] as u32),
+                            cvt_u32(metadata[2] as u32),
+                        )
+                        .map(|()| 0),
+                    ),
+                    ProcCall::Waitpid => Ready(Err(Error::new(EOPNOTSUPP))),
+                }
+            }
+        }
+    }
+    pub fn on_setrens(&mut self, pid: ProcessId, rns: Option<u32>, ens: Option<u32>) -> Result<()> {
+        let process = self.processes.get_mut(&pid).ok_or(Error::new(EBADFD))?;
+        let setrns = if rns.is_none() {
+            // Ignore RNS if -1 is passed
+            false
+        } else if rns == Some(0) {
+            // Allow entering capability mode
+            true
+        } else if process.rns == 0 {
+            // Do not allow leaving capability mode
+            return Err(Error::new(EPERM));
+        } else if process.euid == 0 {
+            // Allow setting RNS if root
+            true
+        } else if rns == Some(process.ens) {
+            // Allow setting RNS if used for ENS
+            true
+        } else if rns == Some(process.rns) {
+            // Allow setting RNS if used for RNS
+            true
+        } else {
+            // Not permitted otherwise
+            return Err(Error::new(EPERM));
+        };
+
+        let setens = if ens.is_none() {
+            // Ignore ENS if -1 is passed
+            false
+        } else if ens == Some(0) {
+            // Allow entering capability mode
+            true
+        } else if process.ens == 0 {
+            // Do not allow leaving capability mode
+            return Err(Error::new(EPERM));
+        } else if process.euid == 0 {
+            // Allow setting ENS if root
+            true
+        } else if ens == Some(process.ens) {
+            // Allow setting ENS if used for ENS
+            true
+        } else if ens == Some(process.rns) {
+            // Allow setting ENS if used for RNS
+            true
+        } else {
+            // Not permitted otherwise
+            return Err(Error::new(EPERM));
+        };
+
+        if setrns {
+            process.rns = rns.unwrap();
+        }
+
+        if setens {
+            process.ens = ens.unwrap();
+        }
+        Ok(())
+    }
+    pub fn work_on(
+        &mut self,
+        mut entry: OccupiedEntry<Id, PendingState, DefaultHashBuilder>,
+    ) -> Poll<Response> {
+        match entry.get_mut() {
+            // TODO
+            PendingState::Waiting => Poll::Pending,
         }
     }
 }

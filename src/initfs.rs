@@ -9,7 +9,7 @@ use hashbrown::HashMap;
 use redox_initfs::{types::Timespec, InitFs, Inode, InodeDir, InodeKind, InodeStruct};
 
 use redox_path::canonicalize_to_standard;
-use redox_scheme::{CallerCtx, OpenResult, RequestKind, Scheme};
+use redox_scheme::{scheme::SchemeSync, CallerCtx, OpenResult, RequestKind};
 
 use redox_scheme::{SignalBehavior, Socket};
 use syscall::data::Stat;
@@ -88,8 +88,8 @@ fn inode_len(inode: InodeStruct<'static>) -> Result<usize> {
     })
 }
 
-impl Scheme for InitFsScheme {
-    fn xopen(&mut self, path: &str, flags: usize, _ctx: &CallerCtx) -> Result<OpenResult> {
+impl SchemeSync for InitFsScheme {
+    fn open(&mut self, path: &str, flags: usize, _ctx: &CallerCtx) -> Result<OpenResult> {
         let mut components = path
             // trim leading and trailing slash
             .trim_matches('/')
@@ -175,6 +175,7 @@ impl Scheme for InitFsScheme {
         buffer: &mut [u8],
         offset: u64,
         _fcntl_flags: u32,
+        _ctx: &CallerCtx,
     ) -> Result<usize> {
         let Ok(offset) = usize::try_from(offset) else {
             return Ok(0);
@@ -243,19 +244,19 @@ impl Scheme for InitFsScheme {
         Ok(buf)
     }
 
-    fn fsize(&mut self, id: usize) -> Result<u64> {
+    fn fsize(&mut self, id: usize, _ctx: &CallerCtx) -> Result<u64> {
         let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
 
         Ok(inode_len(Self::get_inode(&self.fs, handle.inode)?)? as u64)
     }
 
-    fn fcntl(&mut self, id: usize, _cmd: usize, _arg: usize) -> Result<usize> {
+    fn fcntl(&mut self, id: usize, _cmd: usize, _arg: usize, _ctx: &CallerCtx) -> Result<usize> {
         let _handle = self.handles.get(&id).ok_or(Error::new(EBADF))?;
 
         Ok(0)
     }
 
-    fn fpath(&mut self, id: usize, buf: &mut [u8]) -> Result<usize> {
+    fn fpath(&mut self, id: usize, buf: &mut [u8], _ctx: &CallerCtx) -> Result<usize> {
         let handle = self.handles.get(&id).ok_or(Error::new(EBADF))?;
 
         // TODO: Copy scheme part in kernel
@@ -270,7 +271,7 @@ impl Scheme for InitFsScheme {
         Ok(scheme_bytes + path_bytes)
     }
 
-    fn fstat(&mut self, id: usize, stat: &mut Stat) -> Result<usize> {
+    fn fstat(&mut self, id: usize, stat: &mut Stat, _ctx: &CallerCtx) -> Result<()> {
         let handle = self.handles.get(&id).ok_or(Error::new(EBADF))?;
 
         let Timespec { sec, nsec } = self.fs.image_creation_time();
@@ -292,20 +293,20 @@ impl Scheme for InitFsScheme {
         stat.st_mtime = sec.get();
         stat.st_mtime_nsec = nsec.get();
 
-        Ok(0)
+        Ok(())
     }
 
-    fn fsync(&mut self, id: usize) -> Result<usize> {
+    fn fsync(&mut self, id: usize, _ctx: &CallerCtx) -> Result<()> {
         if !self.handles.contains_key(&id) {
             return Err(Error::new(EBADF));
         }
 
-        Ok(0)
+        Ok(())
     }
 
-    fn close(&mut self, id: usize) -> Result<usize> {
+    fn close(&mut self, id: usize) -> Result<()> {
         let _ = self.handles.remove(&id).ok_or(Error::new(EBADF))?;
-        Ok(0)
+        Ok(())
     }
 }
 
@@ -327,7 +328,9 @@ pub fn run(bytes: &'static [u8], sync_pipe: usize) -> ! {
         }) else {
             continue;
         };
-        let resp = req.handle_scheme(&mut scheme);
+        let resp = req
+            .handle_sync(&mut scheme)
+            .expect("failed to handle request");
 
         if !socket
             .write_response(resp, SignalBehavior::Restart)

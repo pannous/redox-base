@@ -75,6 +75,8 @@ pub fn main() -> ! {
         sigprocmask: 0,
         sigignmask: 0,
         umask: redox_rt::sys::get_umask(),
+        thr_fd: **this_thr_fd,
+        proc_fd: **init_proc_fd,
     };
 
     let path = "/scheme/initfs/bin/init";

@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 use hashbrown::hash_map::{DefaultHashBuilder, Entry, OccupiedEntry};
 use hashbrown::{HashMap, HashSet};
 use redox_rt::proc::FdGuard;
-use redox_rt::protocol::{ProcCall, ProcMeta};
+use redox_rt::protocol::{ProcCall, ProcMeta, WaitFlags};
 use redox_scheme::scheme::Op;
 use redox_scheme::{
     CallerCtx, Id, OpenResult, RequestKind, Response, SendFdRequest, SignalBehavior, Socket,
@@ -20,12 +20,9 @@ use redox_scheme::{
 use slab::Slab;
 use syscall::schemev2::NewFdFlags;
 use syscall::{
-    Error, FobtainFdFlags, ProcSchemeAttrs, Result, EBADF, EBADFD, EEXIST, EINVAL, ENOENT, ENOSYS,
-    EOPNOTSUPP, EPERM, O_CLOEXEC, O_CREAT,
+    Error, FobtainFdFlags, ProcSchemeAttrs, Result, EAGAIN, EBADF, EBADFD, EEXIST, EINVAL, ENOENT,
+    ENOSYS, EOPNOTSUPP, EPERM, ESRCH, O_CLOEXEC, O_CREAT,
 };
-enum PendingState {
-    Waiting,
-}
 
 pub fn run(write_fd: usize, auth: &FdGuard) {
     let socket = Socket::create("proc").expect("failed to open proc scheme socket");
@@ -102,7 +99,15 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
 
     unreachable!()
 }
+enum PendingState {
+    AwaitingStatusChange {
+        waiter: ProcessId,
+        target: WaitpidTarget,
+    },
+    AwaitingThreadsTermination(ProcessId),
+}
 
+#[derive(Debug)]
 struct Process {
     threads: Vec<Rc<RefCell<Thread>>>,
     ppid: ProcessId,
@@ -115,7 +120,20 @@ struct Process {
     egid: u32,
     rns: u32,
     ens: u32,
+
+    status: ProcessStatus,
+
+    waitpid: Vec<Id>,
+    children_waitpid: Vec<Id>,
 }
+#[derive(Debug, Clone, Copy)]
+enum ProcessStatus {
+    PossiblyRunnable,
+    Stopped(usize),
+    Exiting { status: i32 },
+    Exited { status: i32 },
+}
+#[derive(Debug)]
 struct Thread {
     fd: FdGuard,
     // sig_ctrl: MmapGuard<...>
@@ -127,27 +145,35 @@ const INIT_PID: ProcessId = ProcessId(1);
 
 struct ProcScheme<'a> {
     processes: HashMap<ProcessId, Process, DefaultHashBuilder>,
-    process_groups: HashSet<ProcessId, DefaultHashBuilder>,
     sessions: HashSet<ProcessId, DefaultHashBuilder>,
     handles: Slab<Handle>,
 
     init_claimed: bool,
     next_id: ProcessId,
 
+    waitpgid: HashMap<ProcessId, Vec<Id>, DefaultHashBuilder>,
     auth: &'a FdGuard,
 }
 
+#[derive(Debug)]
 enum Handle {
     Init,
     Proc(ProcessId),
+}
+
+enum WaitpidTarget {
+    SingleProc(ProcessId),
+    ProcGroup(ProcessId),
+    AnyChild,
+    AnyGroupMember,
 }
 
 impl<'a> ProcScheme<'a> {
     pub fn new(auth: &'a FdGuard) -> ProcScheme {
         ProcScheme {
             processes: HashMap::new(),
-            process_groups: HashSet::new(),
             sessions: HashSet::new(),
+            waitpgid: HashMap::new(),
             handles: Slab::new(),
             init_claimed: false,
             next_id: ProcessId(2),
@@ -182,9 +208,12 @@ impl<'a> ProcScheme<'a> {
                         egid: 0,
                         rns: 1,
                         ens: 1,
+
+                        status: ProcessStatus::PossiblyRunnable,
+                        waitpid: Vec::new(),
+                        children_waitpid: Vec::new(),
                     },
                 );
-                self.process_groups.insert(INIT_PID);
                 self.sessions.insert(INIT_PID);
 
                 *st = Handle::Proc(INIT_PID);
@@ -236,6 +265,10 @@ impl<'a> ProcScheme<'a> {
                 egid,
                 rns,
                 ens,
+
+                status: ProcessStatus::PossiblyRunnable,
+                waitpid: Vec::new(),
+                children_waitpid: Vec::new(),
             },
         );
         Ok(child_pid)
@@ -339,10 +372,97 @@ impl<'a> ProcScheme<'a> {
                         )
                         .map(|()| 0),
                     ),
-                    ProcCall::Waitpid => Ready(Err(Error::new(EOPNOTSUPP))),
+                    ProcCall::Exit => self.on_exit_start(pid, metadata[1] as i32, state),
+                    ProcCall::Waitpid | ProcCall::Waitpgid => {
+                        let req_pid = ProcessId(metadata[1] as usize);
+                        let target = match (verb, metadata[1] == 0) {
+                            (ProcCall::Waitpid, true) => WaitpidTarget::AnyChild,
+                            (ProcCall::Waitpid, false) => WaitpidTarget::SingleProc(req_pid),
+                            (ProcCall::Waitpgid, true) => WaitpidTarget::AnyGroupMember,
+                            (ProcCall::Waitpgid, false) => WaitpidTarget::ProcGroup(req_pid),
+                            _ => unreachable!(),
+                        };
+                        self.on_waitpid(
+                            pid,
+                            target,
+                            plain::from_mut_bytes(payload).map_err(|_| Error::new(EINVAL))?,
+                            WaitFlags::from_bits(metadata[2] as usize).ok_or(Error::new(EINVAL))?,
+                            state,
+                        )
+                    }
                 }
             }
         }
+    }
+    pub fn on_exit_start(
+        &mut self,
+        pid: ProcessId,
+        status: i32,
+        mut state: Entry<Id, PendingState, DefaultHashBuilder>,
+    ) -> Poll<Result<usize>> {
+        let process = self.processes.get_mut(&pid).ok_or(Error::new(EBADFD))?;
+        match process.status {
+            ProcessStatus::Stopped(_) | ProcessStatus::PossiblyRunnable => (),
+            //ProcessStatus::Exiting => return Pending,
+            ProcessStatus::Exiting { .. } => return Ready(Err(Error::new(EAGAIN))),
+            ProcessStatus::Exited { .. } => return Ready(Err(Error::new(ESRCH))),
+        }
+        process.status = ProcessStatus::Exiting { status };
+        if process.threads.is_empty() {
+            Self::on_exit_complete();
+            Ready(Ok(0))
+        } else {
+            let _ = syscall::write(1, b"\nEXIT PENDING\n");
+            self.debug();
+            // TODO: check?
+            state.insert(PendingState::AwaitingThreadsTermination(pid));
+            Pending
+        }
+    }
+    fn on_exit_complete() {
+        // TODO: send waitpid status
+    }
+    pub fn on_waitpid(
+        &mut self,
+        this_pid: ProcessId,
+        target: WaitpidTarget,
+        stat_loc: &mut i32,
+        flags: WaitFlags,
+        mut state: Entry<Id, PendingState, DefaultHashBuilder>,
+    ) -> Poll<Result<usize>> {
+        let _ = syscall::write(1, b"\nWAITPID\n");
+        self.debug();
+        Pending
+    }
+    fn ancestors(&self, pid: ProcessId) -> impl Iterator<Item = ProcessId> + '_ {
+        struct Iter<'a> {
+            cur: Option<ProcessId>,
+            procs: &'a HashMap<ProcessId, Process, DefaultHashBuilder>,
+        }
+        impl Iterator for Iter<'_> {
+            type Item = ProcessId;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                let proc = self.procs.get(&self.cur?)?;
+                self.cur = Some(proc.ppid);
+                Some(proc.ppid)
+            }
+        }
+        Iter {
+            cur: Some(pid),
+            procs: &self.processes,
+        }
+    }
+    fn check_waitpid_queues(
+        &mut self,
+        waiter: ProcessId,
+        target: WaitpidTarget,
+        mask: WaitFlags,
+    ) -> Option<(ProcessId, i32)> {
+        /*match target {
+            //WaitpidTarget::SingleProc(target_pid) => ,
+        }*/
+        todo!()
     }
     pub fn on_setrens(&mut self, pid: ProcessId, rns: Option<u32>, ens: Option<u32>) -> Result<()> {
         let process = self.processes.get_mut(&pid).ok_or(Error::new(EBADFD))?;
@@ -407,7 +527,18 @@ impl<'a> ProcScheme<'a> {
     ) -> Poll<Response> {
         match entry.get_mut() {
             // TODO
-            PendingState::Waiting => Poll::Pending,
+            PendingState::AwaitingThreadsTermination(_) => Pending,
+            PendingState::AwaitingStatusChange { waiter, target } => Pending,
         }
+    }
+    fn debug(&self) {
+        let _ = syscall::write(
+            1,
+            alloc::format!("PROCESSES\n\n{:#?}\n\n", self.processes).as_bytes(),
+        );
+        let _ = syscall::write(
+            1,
+            alloc::format!("HANDLES\n\n{:#?}\n\n", self.handles).as_bytes(),
+        );
     }
 }

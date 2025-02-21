@@ -101,6 +101,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ipcd"
+version = "0.1.0"
+dependencies = [
+ "libredox",
+ "redox-daemon",
+ "redox-scheme 0.2.4",
+ "redox_event",
+ "redox_syscall",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.169"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -239,6 +250,16 @@ checksum = "a28d292981c8f3338cb772b6024b08bcc597d0dd81020de17080a9a7b470ebb2"
 dependencies = [
  "libredox",
  "redox_syscall",
+]
+
+[[package]]
+name = "redox_event"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69609faa5d5992247a4ef379917bb3e39be281405d6a0ccd4f942429400b956f"
+dependencies = [
+ "bitflags",
+ "libredox",
 ]
 
 [[package]]

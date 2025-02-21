@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "init",
+    "ipcd",
     "logd",
     "ramfs",
     "randd",

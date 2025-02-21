@@ -4,6 +4,7 @@ members = [
     "init",
     "ipcd",
     "logd",
+    "ptyd",
     "ramfs",
     "randd",
     "zerod",

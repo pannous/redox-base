@@ -22,9 +22,9 @@ use redox_scheme::{
 use slab::Slab;
 use syscall::schemev2::NewFdFlags;
 use syscall::{
-    Error, Event, EventFlags, FobtainFdFlags, ProcSchemeAttrs, Result, EAGAIN, EBADF, EBADFD,
-    EEXIST, EINTR, EINVAL, ENOENT, ENOSYS, EOPNOTSUPP, EPERM, ESRCH, EWOULDBLOCK, O_CLOEXEC,
-    O_CREAT,
+    ContextStatus, Error, Event, EventFlags, FobtainFdFlags, ProcSchemeAttrs, Result, EAGAIN,
+    EBADF, EBADFD, EEXIST, EINTR, EINVAL, ENOENT, ENOSYS, EOPNOTSUPP, EPERM, ESRCH, EWOULDBLOCK,
+    O_CLOEXEC, O_CREAT,
 };
 
 pub fn run(write_fd: usize, auth: &FdGuard) {
@@ -97,22 +97,36 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
                 }
             }
         } else if let Some(thread) = scheme.thread_lookup.get(&event.data) {
-            let Some(thread) = thread.upgrade() else {
+            let Some(thread_rc) = thread.upgrade() else {
                 let _ = syscall::write(
                     1,
                     alloc::format!("\nDEAD THREAD EVENT FROM {}\n", event.data).as_bytes(),
                 );
                 continue;
             };
+            let thread = thread_rc.borrow();
+            let Some(proc) = scheme.processes.get_mut(&thread.pid) else {
+                // TODO?
+                continue;
+            };
             let _ = syscall::write(
                 1,
-                alloc::format!(
-                    "\nTHREAD EVENT FROM {}, {}, \n",
-                    event.data,
-                    thread.borrow().pid.0
-                )
-                .as_bytes(),
+                alloc::format!("\nTHREAD EVENT FROM {}, {}, \n", event.data, thread.pid.0)
+                    .as_bytes(),
             );
+            let mut buf = 0_usize.to_ne_bytes();
+            let _ = syscall::read(*thread.status_hndl, &mut buf).unwrap();
+            let status = usize::from_ne_bytes(buf);
+
+            let _ = syscall::write(1, alloc::format!("\nSTATUS {status}\n",).as_bytes());
+
+            if status != ContextStatus::Dead as usize {
+                // spurious event
+                continue;
+            }
+            scheme.thread_lookup.remove(&event.data);
+            proc.threads.retain(|rc| !Rc::ptr_eq(rc, &thread_rc));
+            awoken.extend(proc.awaiting_threads_term.drain(..)); // TODO: inefficient
         } else {
             let _ = syscall::write(1, b"\nTODO: UNKNOWN EVENT\n");
         }
@@ -188,6 +202,7 @@ struct Process {
 
     status: ProcessStatus,
 
+    awaiting_threads_term: Vec<Id>,
     waitpid: Vec<Id>,
     children_waitpid: Vec<Id>,
 }
@@ -326,6 +341,7 @@ impl<'a> ProcScheme<'a> {
                         status: ProcessStatus::PossiblyRunnable,
                         waitpid: Vec::new(),
                         children_waitpid: Vec::new(),
+                        awaiting_threads_term: Vec::new(),
                     },
                 );
                 self.sessions.insert(INIT_PID);
@@ -398,6 +414,7 @@ impl<'a> ProcScheme<'a> {
                 status: ProcessStatus::PossiblyRunnable,
                 waitpid: Vec::new(),
                 children_waitpid: Vec::new(),
+                awaiting_threads_term: Vec::new(),
             },
         );
         self.thread_lookup.insert(thread_ident, thread_weak);
@@ -524,7 +541,7 @@ impl<'a> ProcScheme<'a> {
                         self.on_waitpid(
                             pid,
                             target,
-                            plain::from_mut_bytes(payload).unwrap(), //.map_err(|_| Error::new(EINVAL))?,
+                            plain::from_mut_bytes(payload).map_err(|_| Error::new(EINVAL))?,
                             WaitFlags::from_bits(metadata[2] as usize).ok_or(Error::new(EINVAL))?,
                             state,
                         )
@@ -551,15 +568,17 @@ impl<'a> ProcScheme<'a> {
             Self::on_exit_complete();
             Ready(Ok(0))
         } else {
-            // terminate all threads
+            // terminate all threads (possibly including the caller, resulting in EINTR and a
+            // to-be-ignored cancellation request to this scheme).
             for thread in &process.threads {
                 let mut thread = thread.borrow_mut();
                 syscall::write(*thread.status_hndl, &usize::MAX.to_ne_bytes()).expect("TODO");
             }
 
             let _ = syscall::write(1, b"\nEXIT PENDING\n");
-            self.debug();
+            //self.debug();
             // TODO: check?
+            process.awaiting_threads_term.push(*state.key());
             state.insert(PendingState::AwaitingThreadsTermination(pid));
             Pending
         }
@@ -670,10 +689,21 @@ impl<'a> ProcScheme<'a> {
         &mut self,
         mut entry: OccupiedEntry<Id, PendingState, DefaultHashBuilder>,
     ) -> Poll<Response> {
-        match entry.get_mut() {
+        let req_id = *entry.key();
+        match *entry.get_mut() {
             // TODO
-            PendingState::AwaitingThreadsTermination(_) => Pending,
-            PendingState::AwaitingStatusChange { waiter, target } => Pending,
+            PendingState::AwaitingThreadsTermination(pid) => {
+                let Some(proc) = self.processes.get_mut(&pid) else {
+                    return Pending; // TODO
+                };
+                if proc.threads.is_empty() {
+                    let _ = syscall::write(1, b"\nWORKING ON AWAIT TERM\n");
+                    Ready(Response::new(req_id, Ok(0)))
+                } else {
+                    Pending
+                }
+            }
+            PendingState::AwaitingStatusChange { waiter, ref target } => Pending,
         }
     }
     fn debug(&self) {

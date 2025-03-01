@@ -1,9 +1,11 @@
 use core::cell::RefCell;
+use core::cmp::Ordering;
 use core::hash::BuildHasherDefault;
 use core::mem::size_of;
 use core::task::Poll;
 use core::task::Poll::*;
 
+use alloc::collections::btree_map::BTreeMap;
 use alloc::collections::VecDeque;
 use alloc::rc::{Rc, Weak};
 use alloc::vec;
@@ -23,8 +25,8 @@ use slab::Slab;
 use syscall::schemev2::NewFdFlags;
 use syscall::{
     ContextStatus, Error, Event, EventFlags, FobtainFdFlags, ProcSchemeAttrs, Result, EAGAIN,
-    EBADF, EBADFD, EEXIST, EINTR, EINVAL, ENOENT, ENOSYS, EOPNOTSUPP, EPERM, ESRCH, EWOULDBLOCK,
-    O_CLOEXEC, O_CREAT,
+    EBADF, EBADFD, ECHILD, EEXIST, EINTR, EINVAL, ENOENT, ENOSYS, EOPNOTSUPP, EPERM, ESRCH,
+    EWOULDBLOCK, O_CLOEXEC, O_CREAT,
 };
 
 pub fn run(write_fd: usize, auth: &FdGuard) {
@@ -47,13 +49,15 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
 
     let mut states = HashMap::<Id, PendingState, DefaultHashBuilder>::new();
     let mut awoken = VecDeque::<Id>::new();
+    let mut new_awoken = VecDeque::new();
 
     'outer: loop {
+        awoken.append(&mut new_awoken);
         for awoken in awoken.drain(..) {
             let Entry::Occupied(entry) = states.entry(awoken) else {
                 continue;
             };
-            match scheme.work_on(entry) {
+            match scheme.work_on(entry, &mut new_awoken) {
                 Ready(resp) => loop {
                     match socket.write_response(resp, SignalBehavior::Interrupt) {
                         Ok(false) => break 'outer,
@@ -83,7 +87,8 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
                     }
                 }
             };
-            let Some(resp) = handle_scheme(req, &socket, &mut scheme, &mut states) else {
+            let Some(resp) = handle_scheme(req, &socket, &mut scheme, &mut states, &mut awoken)
+            else {
                 continue 'outer;
             };
             loop {
@@ -139,6 +144,7 @@ fn handle_scheme<'a>(
     socket: &'a Socket,
     scheme: &mut ProcScheme<'a>,
     states: &mut HashMap<Id, PendingState>,
+    awoken: &mut VecDeque<Id>,
 ) -> Option<Response> {
     match req.kind() {
         RequestKind::Call(req) => {
@@ -160,6 +166,7 @@ fn handle_scheme<'a>(
                         payload,
                         metadata,
                         states.entry(req.request().request_id()),
+                        awoken,
                     )
                     .map(|r| Response::new(&req, r)),
                 _ => {
@@ -182,6 +189,7 @@ enum PendingState {
     AwaitingStatusChange {
         waiter: ProcessId,
         target: WaitpidTarget,
+        flags: WaitFlags,
     },
     AwaitingThreadsTermination(ProcessId),
 }
@@ -203,15 +211,75 @@ struct Process {
     status: ProcessStatus,
 
     awaiting_threads_term: Vec<Id>,
-    waitpid: Vec<Id>,
-    children_waitpid: Vec<Id>,
+
+    waitpid: BTreeMap<WaitpidKey, (ProcessId, WaitpidStatus)>,
+    waitpid_waiting: VecDeque<Id>,
 }
+#[derive(Copy, Clone, Debug)]
+pub struct WaitpidKey {
+    pub pid: Option<ProcessId>,
+    pub pgid: Option<ProcessId>,
+}
+
+// TODO: Is this valid? (transitive?)
+impl Ord for WaitpidKey {
+    fn cmp(&self, other: &WaitpidKey) -> Ordering {
+        // If both have pid set, compare that
+        if let Some(s_pid) = self.pid {
+            if let Some(o_pid) = other.pid {
+                return s_pid.cmp(&o_pid);
+            }
+        }
+
+        // If both have pgid set, compare that
+        if let Some(s_pgid) = self.pgid {
+            if let Some(o_pgid) = other.pgid {
+                return s_pgid.cmp(&o_pgid);
+            }
+        }
+
+        // If either has pid set, it is greater
+        if self.pid.is_some() {
+            return Ordering::Greater;
+        }
+
+        if other.pid.is_some() {
+            return Ordering::Less;
+        }
+
+        // If either has pgid set, it is greater
+        if self.pgid.is_some() {
+            return Ordering::Greater;
+        }
+
+        if other.pgid.is_some() {
+            return Ordering::Less;
+        }
+
+        // If all pid and pgid are None, they are equal
+        Ordering::Equal
+    }
+}
+
+impl PartialOrd for WaitpidKey {
+    fn partial_cmp(&self, other: &WaitpidKey) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for WaitpidKey {
+    fn eq(&self, other: &WaitpidKey) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for WaitpidKey {}
 #[derive(Debug, Clone, Copy)]
 enum ProcessStatus {
     PossiblyRunnable,
     Stopped(usize),
-    Exiting { status: i32 },
-    Exited { status: i32 },
+    Exiting { signal: Option<u8>, status: u8 },
+    Exited { signal: Option<u8>, status: u8 },
 }
 #[derive(Debug)]
 struct Thread {
@@ -220,7 +288,7 @@ struct Thread {
     pid: ProcessId,
     // sig_ctrl: MmapGuard<...>
 }
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct ProcessId(usize);
 
 const INIT_PID: ProcessId = ProcessId(1);
@@ -235,9 +303,14 @@ struct ProcScheme<'a> {
     init_claimed: bool,
     next_id: ProcessId,
 
-    waitpgid: HashMap<ProcessId, Vec<Id>, DefaultHashBuilder>,
     queue: &'a RawEventQueue,
     auth: &'a FdGuard,
+}
+#[derive(Clone, Copy, Debug)]
+enum WaitpidStatus {
+    Continued,
+    Stopped { signal: u8 },
+    Terminated { signal: Option<u8>, status: u8 },
 }
 
 #[derive(Debug)]
@@ -289,7 +362,6 @@ impl<'a> ProcScheme<'a> {
         ProcScheme {
             processes: HashMap::new(),
             sessions: HashSet::new(),
-            waitpgid: HashMap::new(),
             thread_lookup: HashMap::new(),
             handles: Slab::new(),
             init_claimed: false,
@@ -339,9 +411,9 @@ impl<'a> ProcScheme<'a> {
                         ens: 1,
 
                         status: ProcessStatus::PossiblyRunnable,
-                        waitpid: Vec::new(),
-                        children_waitpid: Vec::new(),
                         awaiting_threads_term: Vec::new(),
+                        waitpid: BTreeMap::new(),
+                        waitpid_waiting: VecDeque::new(),
                     },
                 );
                 self.sessions.insert(INIT_PID);
@@ -412,9 +484,10 @@ impl<'a> ProcScheme<'a> {
                 ens,
 
                 status: ProcessStatus::PossiblyRunnable,
-                waitpid: Vec::new(),
-                children_waitpid: Vec::new(),
                 awaiting_threads_term: Vec::new(),
+
+                waitpid: BTreeMap::new(),
+                waitpid_waiting: VecDeque::new(),
             },
         );
         self.thread_lookup.insert(thread_ident, thread_weak);
@@ -506,6 +579,7 @@ impl<'a> ProcScheme<'a> {
         payload: &mut [u8],
         metadata: &[u64],
         state: Entry<Id, PendingState, DefaultHashBuilder>,
+        awoken: &mut VecDeque<Id>,
     ) -> Poll<Result<usize>> {
         match self.handles[id] {
             Handle::Init => Ready(Err(Error::new(EBADF))),
@@ -528,7 +602,7 @@ impl<'a> ProcScheme<'a> {
                         )
                         .map(|()| 0),
                     ),
-                    ProcCall::Exit => self.on_exit_start(pid, metadata[1] as i32, state),
+                    ProcCall::Exit => self.on_exit_start(pid, metadata[1] as i32, state, awoken),
                     ProcCall::Waitpid | ProcCall::Waitpgid => {
                         let req_pid = ProcessId(metadata[1] as usize);
                         let target = match (verb, metadata[1] == 0) {
@@ -538,13 +612,13 @@ impl<'a> ProcScheme<'a> {
                             (ProcCall::Waitpgid, false) => WaitpidTarget::ProcGroup(req_pid),
                             _ => unreachable!(),
                         };
-                        self.on_waitpid(
-                            pid,
+                        let state = state.insert(PendingState::AwaitingStatusChange {
+                            waiter: req_pid,
                             target,
-                            plain::from_mut_bytes(payload).map_err(|_| Error::new(EINVAL))?,
-                            WaitFlags::from_bits(metadata[2] as usize).ok_or(Error::new(EINVAL))?,
-                            state,
-                        )
+                            flags: WaitFlags::from_bits(metadata[2] as usize)
+                                .ok_or(Error::new(EINVAL))?,
+                        });
+                        self.work_on(state, &mut awoken, Some(payload))
                     }
                 }
             }
@@ -555,6 +629,7 @@ impl<'a> ProcScheme<'a> {
         pid: ProcessId,
         status: i32,
         mut state: Entry<Id, PendingState, DefaultHashBuilder>,
+        awoken: &mut VecDeque<Id>,
     ) -> Poll<Result<usize>> {
         let process = self.processes.get_mut(&pid).ok_or(Error::new(EBADFD))?;
         match process.status {
@@ -563,40 +638,155 @@ impl<'a> ProcScheme<'a> {
             ProcessStatus::Exiting { .. } => return Ready(Err(Error::new(EAGAIN))),
             ProcessStatus::Exited { .. } => return Ready(Err(Error::new(ESRCH))),
         }
-        process.status = ProcessStatus::Exiting { status };
-        if process.threads.is_empty() {
-            Self::on_exit_complete();
-            Ready(Ok(0))
-        } else {
+        // TODO: status/signal
+        process.status = ProcessStatus::Exiting {
+            status: status as u8,
+            signal: None,
+        };
+        if !process.threads.is_empty() {
             // terminate all threads (possibly including the caller, resulting in EINTR and a
             // to-be-ignored cancellation request to this scheme).
             for thread in &process.threads {
                 let mut thread = thread.borrow_mut();
-                syscall::write(*thread.status_hndl, &usize::MAX.to_ne_bytes()).expect("TODO");
+                syscall::write(*thread.status_hndl, &usize::MAX.to_ne_bytes())?;
             }
 
             let _ = syscall::write(1, b"\nEXIT PENDING\n");
             //self.debug();
             // TODO: check?
             process.awaiting_threads_term.push(*state.key());
-            state.insert(PendingState::AwaitingThreadsTermination(pid));
-            Pending
         }
-    }
-    fn on_exit_complete() {
-        // TODO: send waitpid status
+        self.work_on(
+            state.insert(PendingState::AwaitingThreadsTermination(pid)),
+            awoken,
+            None,
+        )
     }
     pub fn on_waitpid(
         &mut self,
         this_pid: ProcessId,
         target: WaitpidTarget,
-        stat_loc: &mut i32,
         flags: WaitFlags,
-        mut state: Entry<Id, PendingState, DefaultHashBuilder>,
-    ) -> Poll<Result<usize>> {
+    ) -> Poll<Result<(usize, i32)>> {
+        let req_id = *state.key();
+
+        if matches!(
+            target,
+            WaitpidTarget::AnyChild | WaitpidTarget::AnyGroupMember
+        ) {
+            // Check for existence of child.
+            // TODO: inefficient, keep refcount?
+            if !self.processes.values().any(|p| p.ppid == this_pid) {
+                return Ready(Err(Error::new(ECHILD)));
+            }
+        }
+
+        let proc = self.processes.get_mut(&this_pid).ok_or(Error::new(ESRCH))?;
         let _ = syscall::write(1, b"\nWAITPID\n");
-        self.debug();
-        Pending
+
+        let recv_nonblock = |waitpid: &mut BTreeMap<WaitpidKey, WaitpidStatus>,
+                             key: &WaitpidKey|
+         -> Option<(WaitpidKey, WaitpidStatus)> {
+            if let Some((key, value)) = waitpid.get(key).map(|(k, v)| (*k, *v)) {
+                waitpid.remove(&key);
+                Some((key, value))
+            } else {
+                None
+            }
+        };
+        let grim_reaper = |w_pid: ProcessId, status: WaitpidStatus| {
+            match status {
+                WaitpidStatus::Continued => {
+                    // TODO: Handle None, i.e. restart everything until a match is found
+                    if flags.contains(WaitFlags::WCONTINUED) {
+                        Option::<(ProcessId, i32)>::Some((w_pid, todo!()))
+                    } else {
+                        None
+                    }
+                }
+                WaitpidStatus::Stopped { signal } => {
+                    if flags.contains(WaitFlags::WUNTRACED) {
+                        Some((w_pid, todo!()))
+                    } else {
+                        None
+                    }
+                }
+                WaitpidStatus::Terminated { signal, status } => Some((w_pid, todo!())),
+            }
+        };
+
+        match target {
+            // TODO: not the same
+            WaitpidTarget::AnyChild | WaitpidTarget::AnyGroupMember => {
+                if let Some((wid, (w_pid, status))) =
+                    proc.waitpid.first_key_value().map(|(k, v)| (*k, *v))
+                {
+                    let _ = proc.waitpid.remove(&wid);
+                    Ready(grim_reaper(w_pid, status))
+                } else if flags.contains(WaitFlags::WNOHANG) {
+                    Ready(Ok((0, 0)))
+                } else {
+                    proc.waitpid_waiting.push_back(req_id);
+                    Pending
+                }
+            }
+            WaitpidTarget::SingleProc(pid) => {
+                if this_pid == pid {
+                    return Err(Error::new(EINVAL));
+                }
+                let [proc, target_proc] = self
+                    .processes
+                    .get_many_mut((&this_pid, &pid))
+                    .ok_or(Error::new(ESRCH))?;
+                if target_proc.ppid != this_pid {
+                    return Ready(Err(Error::new(ECHILD)));
+                }
+                let key = WaitpidKey {
+                    pid: Some(pid),
+                    pgid: None,
+                };
+                if let ProcessStatus::Exited { status, signal } = target_proc.status {
+                    let _ = recv_nonblock(&mut proc.waitpid, &key);
+                    Ready(grim_reaper(
+                        pid,
+                        WaitpidStatus::Terminated { signal, status },
+                    ))
+                } else {
+                    let res = recv_nonblock(&mut proc.waitpid, &key);
+                    if let Some((w_pid, status)) = res {
+                        Ready(grim_reaper(w_pid, status))
+                    } else if flags.contains(WaitFlags::WNOHANG) {
+                        Ready(Ok((0, 0)))
+                    } else {
+                        proc.waitpid_waiting.push_back(req_id);
+                        Pending
+                    }
+                }
+            }
+            WaitpidTarget::ProcGroup(pgid) => {
+                let this_pgid = proc.pgid;
+                if !self.processes.values().any(|p| p.pgid == this_pgid) {
+                    return Ready(Err(Error::new(ECHILD)));
+                }
+
+                // reborrow proc
+                let proc = self.processes.get_mut(&this_pid).ok_or(Error::new(ESRCH))?;
+
+                let key = WaitpidKey {
+                    pid: None,
+                    pgid: Some(pgid),
+                };
+                if let Some((w_pid, status)) = proc.waitpid.get(&key) {
+                    let _ = proc.waitpid.remove(&key);
+                    grim_reaper(w_pid, status)
+                } else if flags.contains(WaitFlags::WNOHANG) {
+                    Ready(Ok((0, 0)))
+                } else {
+                    proc.waitpid_waiting.push_back(req_id);
+                    Pending
+                }
+            }
+        }
     }
     fn ancestors(&self, pid: ProcessId) -> impl Iterator<Item = ProcessId> + '_ {
         struct Iter<'a> {
@@ -688,22 +878,56 @@ impl<'a> ProcScheme<'a> {
     pub fn work_on(
         &mut self,
         mut entry: OccupiedEntry<Id, PendingState, DefaultHashBuilder>,
+        awoken: &mut VecDeque<Id>,
+        buffer: Option<&mut [u8]>,
     ) -> Poll<Response> {
         let req_id = *entry.key();
         match *entry.get_mut() {
             // TODO
-            PendingState::AwaitingThreadsTermination(pid) => {
-                let Some(proc) = self.processes.get_mut(&pid) else {
+            PendingState::AwaitingThreadsTermination(current_pid) => {
+                let Some(proc) = self.processes.get_mut(&current_pid) else {
                     return Pending; // TODO
                 };
                 if proc.threads.is_empty() {
                     let _ = syscall::write(1, b"\nWORKING ON AWAIT TERM\n");
+                    let (signal, status) = match proc.status {
+                        ProcessStatus::Exiting { signal, status } => (signal, status),
+                        ProcessStatus::Exited { .. } => return Ready(Response::new(req_id, Ok(0))),
+                        _ => return Ready(Response::new(req_id, Err(Error::new(ESRCH)))), // TODO?
+                    };
+                    proc.status = ProcessStatus::Exited { signal, status };
+                    let ppid = proc.ppid;
+                    if let Some(parent) = self.processes.get_mut(&ppid) {
+                        // TODO: transfer children to parent, and all of self.waitpid
+                        parent.waitpid.insert(
+                            WaitpidKey {
+                                pid: Some(current_pid),
+                                pgid: Some(pgid),
+                            },
+                            (current_pid, WaitpidStatus::Terminated { signal, status }),
+                        );
+                        // TODO: inefficient
+                        awoken.extend(parent.waitpid_waiting.drain(..));
+                    }
                     Ready(Response::new(req_id, Ok(0)))
                 } else {
                     Pending
                 }
             }
-            PendingState::AwaitingStatusChange { waiter, ref target } => Pending,
+            PendingState::AwaitingStatusChange {
+                waiter,
+                target,
+                flags,
+            } => self
+                .on_waitpid(waiter, target, flags)
+                .map_ok(|(pid, status)| {
+                    if let Some(buf) = buffer.and_then(|buf| plain::from_mut_bytes::<i32>(buf).ok())
+                    {
+                        *buf = status;
+                    }
+                    pid
+                })
+                .map(|res| Response::new(req_id, res)),
         }
     }
     fn debug(&self) {

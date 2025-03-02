@@ -11,21 +11,21 @@ use alloc::rc::{Rc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use hashbrown::hash_map::{DefaultHashBuilder, Entry, OccupiedEntry};
-use hashbrown::{HashMap, HashSet};
+use hashbrown::hash_map::{Entry, OccupiedEntry, VacantEntry};
+use hashbrown::{DefaultHashBuilder, HashMap, HashSet};
 
 use redox_rt::proc::FdGuard;
 use redox_rt::protocol::{ProcCall, ProcMeta, WaitFlags};
-use redox_scheme::scheme::Op;
+use redox_scheme::scheme::{IntoTag, Op, OpCall};
 use redox_scheme::{
     CallerCtx, Id, OpenResult, Request, RequestKind, Response, SendFdRequest, SignalBehavior,
-    Socket,
+    Socket, Tag,
 };
 use slab::Slab;
 use syscall::schemev2::NewFdFlags;
 use syscall::{
     ContextStatus, Error, Event, EventFlags, FobtainFdFlags, ProcSchemeAttrs, Result, EAGAIN,
-    EBADF, EBADFD, ECHILD, EEXIST, EINTR, EINVAL, ENOENT, ENOSYS, EOPNOTSUPP, EPERM, ESRCH,
+    EBADF, EBADFD, ECHILD, EEXIST, EINTR, EINVAL, EIO, ENOENT, ENOSYS, EOPNOTSUPP, EPERM, ESRCH,
     EWOULDBLOCK, O_CLOEXEC, O_CREAT,
 };
 
@@ -54,10 +54,10 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
     'outer: loop {
         awoken.append(&mut new_awoken);
         for awoken in awoken.drain(..) {
-            let Entry::Occupied(entry) = states.entry(awoken) else {
+            let Entry::Occupied(state) = states.entry(awoken) else {
                 continue;
             };
-            match scheme.work_on(entry, &mut new_awoken) {
+            match scheme.work_on(state, &mut new_awoken) {
                 Ready(resp) => loop {
                     match socket.write_response(resp, SignalBehavior::Interrupt) {
                         Ok(false) => break 'outer,
@@ -87,7 +87,7 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
                     }
                 }
             };
-            let Some(resp) = handle_scheme(req, &socket, &mut scheme, &mut states, &mut awoken)
+            let Ready(resp) = handle_scheme(req, &socket, &mut scheme, &mut states, &mut awoken)
             else {
                 continue 'outer;
             };
@@ -145,44 +145,44 @@ fn handle_scheme<'a>(
     scheme: &mut ProcScheme<'a>,
     states: &mut HashMap<Id, PendingState>,
     awoken: &mut VecDeque<Id>,
-) -> Option<Response> {
+) -> Poll<Response> {
     match req.kind() {
         RequestKind::Call(req) => {
-            let res = req.with(|req, caller, op| match op {
-                Op::Open { path, flags } => {
-                    Ready(Response::open_dup_like(&req, scheme.on_open(path, flags)))
-                }
-                Op::Dup { old_fd, buf } => {
-                    Ready(Response::open_dup_like(&req, scheme.on_dup(old_fd, buf)))
-                }
-                Op::Read { fd, buf, .. } => Ready(Response::new(&req, scheme.on_read(fd, buf))),
-                Op::Call {
-                    fd,
-                    payload,
-                    metadata,
-                } => scheme
-                    .on_call(
-                        fd,
-                        payload,
-                        metadata,
-                        states.entry(req.request().request_id()),
-                        awoken,
-                    )
-                    .map(|r| Response::new(&req, r)),
+            let req_id = req.request_id();
+            let op = match req.op() {
+                Ok(op) => op,
+                Err(req) => return Response::ready_err(ENOSYS, req),
+            };
+            match op {
+                Op::Open(op) => Ready(Response::open_dup_like(
+                    scheme.on_open(op.path(), op.flags),
+                    op,
+                )),
+                Op::Dup(op) => Ready(Response::open_dup_like(scheme.on_dup(op.fd, op.buf()), op)),
+                Op::Read(mut op) => Ready(Response::new(scheme.on_read(op.fd, op.buf()), op)),
+                Op::Call(op) => scheme.on_call(
+                    {
+                        // TODO: cleanup
+                        states.remove(&req_id);
+                        if let Entry::Vacant(entry) = states.entry(req_id) {
+                            entry
+                        } else {
+                            unreachable!()
+                        }
+                    },
+                    op,
+                    awoken,
+                ),
                 _ => {
                     let _ = syscall::write(1, alloc::format!("\nUNKNOWN: {op:?}\n").as_bytes());
-                    Ready(Response::new(&req, Err(Error::new(ENOSYS))))
+                    Ready(Response::new(Err(Error::new(ENOSYS)), op))
                 }
-            });
-            match res {
-                Ok(Ready(r)) | Err(r) => Some(r),
-                // waker has already been registered, so the logic for the caller is to not send a
-                // response and continue with remaining events
-                Ok(Pending) => None,
             }
         }
-        RequestKind::SendFd(req) => Some(scheme.on_sendfd(socket, &req)),
-        _ => None,
+        RequestKind::SendFd(req) => Ready(scheme.on_sendfd(socket, req)),
+
+        // ignore
+        _ => Pending,
     }
 }
 enum PendingState {
@@ -190,8 +190,19 @@ enum PendingState {
         waiter: ProcessId,
         target: WaitpidTarget,
         flags: WaitFlags,
+        op: OpCall,
     },
-    AwaitingThreadsTermination(ProcessId),
+    AwaitingThreadsTermination(ProcessId, Tag),
+    Placeholder,
+}
+impl IntoTag for PendingState {
+    fn into_tag(self) -> Tag {
+        match self {
+            Self::AwaitingThreadsTermination(_, tag) => tag,
+            Self::AwaitingStatusChange { op, .. } => op.into_tag(),
+            Self::Placeholder => unreachable!(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -376,12 +387,12 @@ impl<'a> ProcScheme<'a> {
         self.next_id.0 += 1;
         id
     }
-    fn on_sendfd(&mut self, socket: &Socket, req: &SendFdRequest) -> Response {
+    fn on_sendfd(&mut self, socket: &Socket, req: SendFdRequest) -> Response {
         match self.handles[req.id()] {
             ref mut st @ Handle::Init => {
                 let mut fd_out = usize::MAX;
                 if let Err(e) = req.obtain_fd(socket, FobtainFdFlags::empty(), Err(&mut fd_out)) {
-                    return Response::for_sendfd(&req, Err(e));
+                    return Response::new(Err(e), req);
                 };
                 let fd = FdGuard::new(fd_out);
 
@@ -422,9 +433,9 @@ impl<'a> ProcScheme<'a> {
                 self.thread_lookup.insert(fd_out, thread_weak);
 
                 *st = Handle::Proc(INIT_PID);
-                Response::for_sendfd(&req, Ok(0))
+                Response::ok(0, req)
             }
-            _ => Response::for_sendfd(&req, Err(Error::new(EBADF))),
+            _ => Response::err(EBADF, req),
         }
     }
     fn fork(&mut self, parent_pid: ProcessId) -> Result<ProcessId> {
@@ -576,17 +587,18 @@ impl<'a> ProcScheme<'a> {
     }
     pub fn on_call(
         &mut self,
-        id: usize,
-        payload: &mut [u8],
-        metadata: &[u64],
-        state: Entry<Id, PendingState, DefaultHashBuilder>,
+        state: VacantEntry<Id, PendingState, DefaultHashBuilder>,
+        mut op: OpCall,
         awoken: &mut VecDeque<Id>,
-    ) -> Poll<Result<usize>> {
+    ) -> Poll<Response> {
+        let id = op.fd;
+        let (payload, metadata) = op.payload_and_metadata();
         match self.handles[id] {
-            Handle::Init => Ready(Err(Error::new(EBADF))),
+            Handle::Init => Response::ready_err(EBADF, op),
             Handle::Proc(pid) => {
-                let verb =
-                    ProcCall::try_from_raw(metadata[0] as usize).ok_or(Error::new(EINVAL))?;
+                let Some(verb) = ProcCall::try_from_raw(metadata[0] as usize) else {
+                    return Response::ready_err(EINVAL, op);
+                };
                 fn cvt_u32(u: u32) -> Option<u32> {
                     if u == u32::MAX {
                         None
@@ -595,15 +607,18 @@ impl<'a> ProcScheme<'a> {
                     }
                 }
                 match verb {
-                    ProcCall::Setrens => Ready(
+                    ProcCall::Setrens => Ready(Response::new(
                         self.on_setrens(
                             pid,
                             cvt_u32(metadata[1] as u32),
                             cvt_u32(metadata[2] as u32),
                         )
                         .map(|()| 0),
-                    ),
-                    ProcCall::Exit => self.on_exit_start(pid, metadata[1] as i32, state, awoken),
+                        op,
+                    )),
+                    ProcCall::Exit => {
+                        self.on_exit_start(pid, metadata[1] as i32, state, awoken, op.into_tag())
+                    }
                     ProcCall::Waitpid | ProcCall::Waitpgid => {
                         let req_pid = ProcessId(metadata[1] as usize);
                         let target = match (verb, metadata[1] == 0) {
@@ -613,13 +628,17 @@ impl<'a> ProcScheme<'a> {
                             (ProcCall::Waitpgid, false) => WaitpidTarget::ProcGroup(req_pid),
                             _ => unreachable!(),
                         };
-                        let state = state.insert(PendingState::AwaitingStatusChange {
+                        let flags = match WaitFlags::from_bits(metadata[2] as usize) {
+                            Some(fl) => fl,
+                            None => return Response::ready_err(EINVAL, op),
+                        };
+                        let state = state.insert_entry(PendingState::AwaitingStatusChange {
                             waiter: req_pid,
                             target,
-                            flags: WaitFlags::from_bits(metadata[2] as usize)
-                                .ok_or(Error::new(EINVAL))?,
+                            flags,
+                            op,
                         });
-                        self.work_on(state, &mut awoken, Some(payload))
+                        self.work_on(state, awoken)
                     }
                 }
             }
@@ -629,15 +648,18 @@ impl<'a> ProcScheme<'a> {
         &mut self,
         pid: ProcessId,
         status: i32,
-        mut state: Entry<Id, PendingState, DefaultHashBuilder>,
+        mut state: VacantEntry<Id, PendingState, DefaultHashBuilder>,
         awoken: &mut VecDeque<Id>,
-    ) -> Poll<Result<usize>> {
-        let process = self.processes.get_mut(&pid).ok_or(Error::new(EBADFD))?;
+        tag: Tag,
+    ) -> Poll<Response> {
+        let Some(process) = self.processes.get_mut(&pid) else {
+            return Response::ready_err(EBADFD, tag);
+        };
         match process.status {
             ProcessStatus::Stopped(_) | ProcessStatus::PossiblyRunnable => (),
             //ProcessStatus::Exiting => return Pending,
-            ProcessStatus::Exiting { .. } => return Ready(Err(Error::new(EAGAIN))),
-            ProcessStatus::Exited { .. } => return Ready(Err(Error::new(ESRCH))),
+            ProcessStatus::Exiting { .. } => return Response::ready_err(EAGAIN, tag),
+            ProcessStatus::Exited { .. } => return Response::ready_err(ESRCH, tag),
         }
         // TODO: status/signal
         process.status = ProcessStatus::Exiting {
@@ -649,7 +671,9 @@ impl<'a> ProcScheme<'a> {
             // to-be-ignored cancellation request to this scheme).
             for thread in &process.threads {
                 let mut thread = thread.borrow_mut();
-                syscall::write(*thread.status_hndl, &usize::MAX.to_ne_bytes())?;
+                if let Err(err) = syscall::write(*thread.status_hndl, &usize::MAX.to_ne_bytes()) {
+                    return Response::ready_err(err.errno, tag);
+                }
             }
 
             let _ = syscall::write(1, b"\nEXIT PENDING\n");
@@ -658,9 +682,8 @@ impl<'a> ProcScheme<'a> {
             process.awaiting_threads_term.push(*state.key());
         }
         self.work_on(
-            state.insert(PendingState::AwaitingThreadsTermination(pid)),
+            state.insert_entry(PendingState::AwaitingThreadsTermination(pid, tag)),
             awoken,
-            None,
         )
     }
     pub fn on_waitpid(
@@ -668,9 +691,8 @@ impl<'a> ProcScheme<'a> {
         this_pid: ProcessId,
         target: WaitpidTarget,
         flags: WaitFlags,
+        req_id: Id,
     ) -> Poll<Result<(usize, i32)>> {
-        let req_id = *state.key();
-
         if matches!(
             target,
             WaitpidTarget::AnyChild | WaitpidTarget::AnyGroupMember
@@ -736,10 +758,11 @@ impl<'a> ProcScheme<'a> {
                 if this_pid == pid {
                     return Ready(Err(Error::new(EINVAL)));
                 }
-                let [proc, target_proc] = self
-                    .processes
-                    .get_many_mut([&this_pid, &pid])
-                    .ok_or(Error::new(ESRCH))?;
+                let [Some(proc), Some(target_proc)] =
+                    self.processes.get_many_mut([&this_pid, &pid])
+                else {
+                    return Ready(Err(Error::new(ESRCH)));
+                };
                 if target_proc.ppid != this_pid {
                     return Ready(Err(Error::new(ECHILD)));
                 }
@@ -876,23 +899,24 @@ impl<'a> ProcScheme<'a> {
     }
     pub fn work_on(
         &mut self,
-        mut entry: OccupiedEntry<Id, PendingState, DefaultHashBuilder>,
+        mut state: OccupiedEntry<Id, PendingState, DefaultHashBuilder>,
         awoken: &mut VecDeque<Id>,
-        buffer: Option<&mut [u8]>,
     ) -> Poll<Response> {
-        let req_id = *entry.key();
-        match *entry.get_mut() {
+        let req_id = *state.key();
+        let mut state = state.get_mut();
+        match core::mem::replace(state, PendingState::Placeholder) {
+            PendingState::Placeholder => unreachable!(),
             // TODO
-            PendingState::AwaitingThreadsTermination(current_pid) => {
+            PendingState::AwaitingThreadsTermination(current_pid, tag) => {
                 let Some(proc) = self.processes.get_mut(&current_pid) else {
-                    return Pending; // TODO
+                    return Response::ready_err(ESRCH, tag);
                 };
                 if proc.threads.is_empty() {
                     let _ = syscall::write(1, b"\nWORKING ON AWAIT TERM\n");
                     let (signal, status) = match proc.status {
                         ProcessStatus::Exiting { signal, status } => (signal, status),
-                        ProcessStatus::Exited { .. } => return Ready(Response::new(req_id, Ok(0))),
-                        _ => return Ready(Response::new(req_id, Err(Error::new(ESRCH)))), // TODO?
+                        ProcessStatus::Exited { .. } => return Response::ready_ok(0, tag),
+                        _ => return Response::ready_err(ESRCH, tag), // TODO?
                     };
                     proc.status = ProcessStatus::Exited { signal, status };
                     let (ppid, pgid) = (proc.ppid, proc.pgid);
@@ -908,8 +932,10 @@ impl<'a> ProcScheme<'a> {
                         // TODO: inefficient
                         awoken.extend(parent.waitpid_waiting.drain(..));
                     }
-                    Ready(Response::new(req_id, Ok(0)))
+                    Ready(Response::new(Ok(0), tag))
                 } else {
+                    proc.awaiting_threads_term.push(req_id);
+                    *state = PendingState::AwaitingThreadsTermination(current_pid, tag);
                     Pending
                 }
             }
@@ -917,16 +943,25 @@ impl<'a> ProcScheme<'a> {
                 waiter,
                 target,
                 flags,
-            } => self
-                .on_waitpid(waiter, target, flags)
-                .map_ok(|(pid, status)| {
-                    if let Some(buf) = buffer.and_then(|buf| plain::from_mut_bytes::<i32>(buf).ok())
-                    {
-                        *buf = status;
+                mut op,
+            } => match self.on_waitpid(waiter, target, flags, req_id) {
+                Ready(Ok((pid, status))) => {
+                    if let Ok(status_out) = plain::from_mut_bytes::<i32>(op.payload()) {
+                        *status_out = status;
                     }
-                    pid
-                })
-                .map(|res| Response::new(req_id, res)),
+                    Response::ready_ok(pid, op)
+                }
+                Ready(Err(e)) => Response::ready_err(e.errno, op),
+                Pending => {
+                    *state = PendingState::AwaitingStatusChange {
+                        waiter,
+                        target,
+                        flags,
+                        op,
+                    };
+                    Pending
+                }
+            },
         }
     }
     fn debug(&self) {

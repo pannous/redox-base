@@ -10,9 +10,9 @@ name = "bootstrap"
 crate-type = ["staticlib"]
 
 [dependencies]
-hashbrown = { version = "0.14", default-features = false, features = [
+hashbrown = { version = "0.15", default-features = false, features = [
     "inline-more",
-    "ahash",
+    "default-hasher",
 ] }
 linked_list_allocator = "0.10"
 plain = "0.2"

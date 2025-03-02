@@ -319,6 +319,7 @@ enum Handle {
     Proc(ProcessId),
 }
 
+#[derive(Clone, Copy, Debug)]
 enum WaitpidTarget {
     SingleProc(ProcessId),
     ProcGroup(ProcessId),
@@ -684,34 +685,35 @@ impl<'a> ProcScheme<'a> {
         let proc = self.processes.get_mut(&this_pid).ok_or(Error::new(ESRCH))?;
         let _ = syscall::write(1, b"\nWAITPID\n");
 
-        let recv_nonblock = |waitpid: &mut BTreeMap<WaitpidKey, WaitpidStatus>,
+        let recv_nonblock = |waitpid: &mut BTreeMap<WaitpidKey, (ProcessId, WaitpidStatus)>,
                              key: &WaitpidKey|
-         -> Option<(WaitpidKey, WaitpidStatus)> {
-            if let Some((key, value)) = waitpid.get(key).map(|(k, v)| (*k, *v)) {
-                waitpid.remove(&key);
-                Some((key, value))
+         -> Option<(ProcessId, WaitpidStatus)> {
+            if let Some((pid, sts)) = waitpid.get(key).map(|(k, v)| (*k, *v)) {
+                waitpid.remove(key);
+                Some((pid, sts))
             } else {
                 None
             }
         };
         let grim_reaper = |w_pid: ProcessId, status: WaitpidStatus| {
+            let ret: i32 = todo!();
             match status {
                 WaitpidStatus::Continued => {
                     // TODO: Handle None, i.e. restart everything until a match is found
                     if flags.contains(WaitFlags::WCONTINUED) {
-                        Option::<(ProcessId, i32)>::Some((w_pid, todo!()))
+                        Ready((w_pid.0, ret))
                     } else {
-                        None
+                        Pending
                     }
                 }
                 WaitpidStatus::Stopped { signal } => {
                     if flags.contains(WaitFlags::WUNTRACED) {
-                        Some((w_pid, todo!()))
+                        Ready((w_pid.0, ret))
                     } else {
-                        None
+                        Pending
                     }
                 }
-                WaitpidStatus::Terminated { signal, status } => Some((w_pid, todo!())),
+                WaitpidStatus::Terminated { signal, status } => Ready((w_pid.0, ret)),
             }
         };
 
@@ -722,7 +724,7 @@ impl<'a> ProcScheme<'a> {
                     proc.waitpid.first_key_value().map(|(k, v)| (*k, *v))
                 {
                     let _ = proc.waitpid.remove(&wid);
-                    Ready(grim_reaper(w_pid, status))
+                    grim_reaper(w_pid, status).map(Ok)
                 } else if flags.contains(WaitFlags::WNOHANG) {
                     Ready(Ok((0, 0)))
                 } else {
@@ -732,11 +734,11 @@ impl<'a> ProcScheme<'a> {
             }
             WaitpidTarget::SingleProc(pid) => {
                 if this_pid == pid {
-                    return Err(Error::new(EINVAL));
+                    return Ready(Err(Error::new(EINVAL)));
                 }
                 let [proc, target_proc] = self
                     .processes
-                    .get_many_mut((&this_pid, &pid))
+                    .get_many_mut([&this_pid, &pid])
                     .ok_or(Error::new(ESRCH))?;
                 if target_proc.ppid != this_pid {
                     return Ready(Err(Error::new(ECHILD)));
@@ -747,14 +749,11 @@ impl<'a> ProcScheme<'a> {
                 };
                 if let ProcessStatus::Exited { status, signal } = target_proc.status {
                     let _ = recv_nonblock(&mut proc.waitpid, &key);
-                    Ready(grim_reaper(
-                        pid,
-                        WaitpidStatus::Terminated { signal, status },
-                    ))
+                    grim_reaper(pid, WaitpidStatus::Terminated { signal, status }).map(Ok)
                 } else {
                     let res = recv_nonblock(&mut proc.waitpid, &key);
                     if let Some((w_pid, status)) = res {
-                        Ready(grim_reaper(w_pid, status))
+                        grim_reaper(w_pid, status).map(Ok)
                     } else if flags.contains(WaitFlags::WNOHANG) {
                         Ready(Ok((0, 0)))
                     } else {
@@ -776,9 +775,9 @@ impl<'a> ProcScheme<'a> {
                     pid: None,
                     pgid: Some(pgid),
                 };
-                if let Some((w_pid, status)) = proc.waitpid.get(&key) {
+                if let Some(&(w_pid, status)) = proc.waitpid.get(&key) {
                     let _ = proc.waitpid.remove(&key);
-                    grim_reaper(w_pid, status)
+                    grim_reaper(w_pid, status).map(Ok)
                 } else if flags.contains(WaitFlags::WNOHANG) {
                     Ready(Ok((0, 0)))
                 } else {
@@ -896,7 +895,7 @@ impl<'a> ProcScheme<'a> {
                         _ => return Ready(Response::new(req_id, Err(Error::new(ESRCH)))), // TODO?
                     };
                     proc.status = ProcessStatus::Exited { signal, status };
-                    let ppid = proc.ppid;
+                    let (ppid, pgid) = (proc.ppid, proc.pgid);
                     if let Some(parent) = self.processes.get_mut(&ppid) {
                         // TODO: transfer children to parent, and all of self.waitpid
                         parent.waitpid.insert(

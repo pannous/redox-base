@@ -53,7 +53,7 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
     let mut new_awoken = VecDeque::new();
 
     'outer: loop {
-        log::trace!("{awoken:#?}");
+        log::trace!("AWOKEN {awoken:#?}");
         while !awoken.is_empty() || !new_awoken.is_empty() {
             awoken.append(&mut new_awoken);
             for awoken in awoken.drain(..) {
@@ -82,29 +82,33 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
         let event = queue.next_event().expect("failed to get next event");
 
         if event.data == socket_ident {
-            let req = loop {
-                match socket.next_request(SignalBehavior::Interrupt) {
-                    Ok(None) => break 'outer,
-                    Ok(Some(req)) => break req,
-                    Err(e) if e.errno == EINTR => continue,
-                    // spurious event
-                    Err(e) if e.errno == EWOULDBLOCK || e.errno == EAGAIN => continue 'outer,
-                    Err(other) => {
-                        panic!("bootstrap: failed to read scheme request from kernel: {other}")
+            'reqs: loop {
+                let req = loop {
+                    match socket.next_request(SignalBehavior::Interrupt) {
+                        Ok(None) => break 'outer,
+                        Ok(Some(req)) => break req,
+                        Err(e) if e.errno == EINTR => continue,
+                        // spurious event
+                        Err(e) if e.errno == EWOULDBLOCK || e.errno == EAGAIN => break 'reqs,
+                        Err(other) => {
+                            panic!("bootstrap: failed to read scheme request from kernel: {other}")
+                        }
                     }
-                }
-            };
-            let Ready(resp) = handle_scheme(req, &socket, &mut scheme, &mut states, &mut awoken)
-            else {
-                continue 'outer;
-            };
-            loop {
-                match socket.write_response(resp, SignalBehavior::Interrupt) {
-                    Ok(false) => break 'outer,
-                    Ok(_) => break,
-                    Err(err) if err.errno == EINTR => continue,
-                    Err(err) => {
-                        panic!("bootstrap: failed to write scheme response to kernel: {err}")
+                };
+                log::trace!("REQ{req:#?}");
+                let Ready(resp) =
+                    handle_scheme(req, &socket, &mut scheme, &mut states, &mut awoken)
+                else {
+                    continue 'reqs;
+                };
+                loop {
+                    match socket.write_response(resp, SignalBehavior::Interrupt) {
+                        Ok(false) => break 'outer,
+                        Ok(_) => break,
+                        Err(err) if err.errno == EINTR => continue,
+                        Err(err) => {
+                            panic!("bootstrap: failed to write scheme response to kernel: {err}")
+                        }
                     }
                 }
             }
@@ -569,6 +573,7 @@ impl<'a> ProcScheme<'a> {
         }
     }
     fn on_dup(&mut self, old_id: usize, buf: &[u8]) -> Result<OpenResult> {
+        log::trace!("Dup request");
         match self.handles[old_id] {
             Handle::Proc(pid) => match buf {
                 b"fork" => {

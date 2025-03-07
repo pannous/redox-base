@@ -13,10 +13,14 @@ impl log::Log for Logger {
         metadata.level() <= log::max_level()
     }
     fn log(&self, record: &log::Record) {
-        let module = record.module_path().unwrap_or("");
+        let file = record.file().unwrap_or("");
+        let line = record.line().unwrap_or(0);
         let level = record.level();
         let msg = record.args();
-        let _ = syscall::write(1, alloc::format!("[{module} {level}] {msg}\n").as_bytes());
+        let _ = syscall::write(
+            1,
+            alloc::format!("[{file}:{line} {level}] {msg}\n").as_bytes(),
+        );
     }
     fn flush(&self) {}
 }

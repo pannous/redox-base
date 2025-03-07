@@ -322,9 +322,7 @@ pub fn run(bytes: &'static [u8], sync_pipe: usize) -> ! {
         };
         match req.kind() {
             RequestKind::Call(req) => {
-                let resp = req
-                    .handle_sync(&mut scheme)
-                    .expect("failed to handle request");
+                let resp = req.handle_sync(&mut scheme);
 
                 if !socket
                     .write_response(resp, SignalBehavior::Restart)

@@ -52,23 +52,30 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
     let mut new_awoken = VecDeque::new();
 
     'outer: loop {
-        awoken.append(&mut new_awoken);
-        for awoken in awoken.drain(..) {
-            let Entry::Occupied(state) = states.entry(awoken) else {
-                continue;
-            };
-            match scheme.work_on(state, &mut new_awoken) {
-                Ready(resp) => loop {
-                    match socket.write_response(resp, SignalBehavior::Interrupt) {
-                        Ok(false) => break 'outer,
-                        Ok(_) => break,
-                        Err(err) if err.errno == EINTR => continue,
-                        Err(err) => {
-                            panic!("bootstrap: failed to write scheme response to kernel: {err}")
+        let _ = syscall::write(1, alloc::format!("\n{awoken:#?}\n").as_bytes());
+        while !awoken.is_empty() || !new_awoken.is_empty() {
+            awoken.append(&mut new_awoken);
+            for awoken in awoken.drain(..) {
+                //let _ = syscall::write(1, alloc::format!("\nALL STATES {states:#?}, AWOKEN {awoken:#?}\n").as_bytes());
+                let Entry::Occupied(state) = states.entry(awoken) else {
+                    continue;
+                };
+                //let _ = syscall::write(1, alloc::format!("\nSTATE {state:#?}\n").as_bytes());
+                match scheme.work_on(state, &mut new_awoken) {
+                    Ready(resp) => {
+                        loop {
+                            match socket.write_response(resp, SignalBehavior::Interrupt) {
+                                Ok(false) => break 'outer,
+                                Ok(_) => break,
+                                Err(err) if err.errno == EINTR => continue,
+                                Err(err) => {
+                                    panic!("bootstrap: failed to write scheme response to kernel: {err}")
+                                }
+                            }
                         }
                     }
-                },
-                Pending => continue,
+                    Pending => continue,
+                }
             }
         }
         // TODO: multiple events?
@@ -131,6 +138,10 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
             }
             scheme.thread_lookup.remove(&event.data);
             proc.threads.retain(|rc| !Rc::ptr_eq(rc, &thread_rc));
+            let _ = syscall::write(
+                1,
+                alloc::format!("\nAWAITING {}\n", proc.awaiting_threads_term.len()).as_bytes(),
+            );
             awoken.extend(proc.awaiting_threads_term.drain(..)); // TODO: inefficient
         } else {
             let _ = syscall::write(1, b"\nTODO: UNKNOWN EVENT\n");
@@ -185,6 +196,7 @@ fn handle_scheme<'a>(
         _ => Pending,
     }
 }
+#[derive(Debug)]
 enum PendingState {
     AwaitingStatusChange {
         waiter: ProcessId,
@@ -901,13 +913,14 @@ impl<'a> ProcScheme<'a> {
     }
     pub fn work_on(
         &mut self,
-        mut state: OccupiedEntry<Id, PendingState, DefaultHashBuilder>,
+        mut state_entry: OccupiedEntry<Id, PendingState, DefaultHashBuilder>,
         awoken: &mut VecDeque<Id>,
     ) -> Poll<Response> {
-        let req_id = *state.key();
-        let mut state = state.get_mut();
-        match core::mem::replace(state, PendingState::Placeholder) {
-            PendingState::Placeholder => unreachable!(),
+        let req_id = *state_entry.key();
+        let mut state = state_entry.get_mut();
+        let this_state = core::mem::replace(state, PendingState::Placeholder);
+        match this_state {
+            PendingState::Placeholder => return Pending, // unreachable!(),
             // TODO
             PendingState::AwaitingThreadsTermination(current_pid, tag) => {
                 let Some(proc) = self.processes.get_mut(&current_pid) else {
@@ -920,6 +933,9 @@ impl<'a> ProcScheme<'a> {
                         ProcessStatus::Exited { .. } => return Response::ready_ok(0, tag),
                         _ => return Response::ready_err(ESRCH, tag), // TODO?
                     };
+                    // TODO: Properly remove state
+                    state_entry.remove();
+
                     proc.status = ProcessStatus::Exited { signal, status };
                     let (ppid, pgid) = (proc.ppid, proc.pgid);
                     if let Some(parent) = self.processes.get_mut(&ppid) {
@@ -931,11 +947,13 @@ impl<'a> ProcScheme<'a> {
                             },
                             (current_pid, WaitpidStatus::Terminated { signal, status }),
                         );
+                        //let _ = syscall::write(1, alloc::format!("\nAWAKING WAITPID {:?}\n", parent.waitpid_waiting).as_bytes());
                         // TODO: inefficient
                         awoken.extend(parent.waitpid_waiting.drain(..));
                     }
                     Ready(Response::new(Ok(0), tag))
                 } else {
+                    let _ = syscall::write(1, b"\nWAITING AGAIN\n");
                     proc.awaiting_threads_term.push(req_id);
                     *state = PendingState::AwaitingThreadsTermination(current_pid, tag);
                     Pending
@@ -946,24 +964,28 @@ impl<'a> ProcScheme<'a> {
                 target,
                 flags,
                 mut op,
-            } => match self.on_waitpid(waiter, target, flags, req_id) {
-                Ready(Ok((pid, status))) => {
-                    if let Ok(status_out) = plain::from_mut_bytes::<i32>(op.payload()) {
-                        *status_out = status;
+            } => {
+                let _ = syscall::write(1, b"\nWORKING ON AWAIT STS CHANGE\n");
+
+                match self.on_waitpid(waiter, target, flags, req_id) {
+                    Ready(Ok((pid, status))) => {
+                        if let Ok(status_out) = plain::from_mut_bytes::<i32>(op.payload()) {
+                            *status_out = status;
+                        }
+                        Response::ready_ok(pid, op)
                     }
-                    Response::ready_ok(pid, op)
+                    Ready(Err(e)) => Response::ready_err(e.errno, op),
+                    Pending => {
+                        *state = PendingState::AwaitingStatusChange {
+                            waiter,
+                            target,
+                            flags,
+                            op,
+                        };
+                        Pending
+                    }
                 }
-                Ready(Err(e)) => Response::ready_err(e.errno, op),
-                Pending => {
-                    *state = PendingState::AwaitingStatusChange {
-                        waiter,
-                        target,
-                        flags,
-                        op,
-                    };
-                    Pending
-                }
-            },
+            }
         }
     }
     fn debug(&self) {

@@ -523,19 +523,40 @@ impl<'a> ProcScheme<'a> {
         Ok(child_pid)
     }
     fn new_thread(&mut self, pid: ProcessId) -> Result<FdGuard> {
+        // TODO: deduplicate code with fork
         let proc = self.processes.get_mut(&pid).ok_or(Error::new(EBADFD))?;
-        let fd: FdGuard = todo!();
-        let status_hndl = todo!();
-        let ident = *fd;
+        let ctxt_fd = FdGuard::new(syscall::dup(**self.auth, b"new-context")?);
+
+        let attr_fd = FdGuard::new(syscall::dup(
+            *ctxt_fd,
+            alloc::format!("attrs-{}", **self.auth).as_bytes(),
+        )?);
+        let _ = syscall::write(
+            *attr_fd,
+            &ProcSchemeAttrs {
+                pid: pid.0 as u32,
+                euid: proc.euid,
+                egid: proc.egid,
+                ens: proc.ens,
+            },
+        )?;
+
+        let status_hndl = FdGuard::new(syscall::dup(*ctxt_fd, b"status")?);
+
+        self.queue
+            .subscribe(*ctxt_fd, *status_hndl, EventFlags::EVENT_READ)
+            .expect("TODO");
+
+        let ident = *ctxt_fd;
         let thread = Rc::new(RefCell::new(Thread {
-            fd,
+            fd: FdGuard::new(syscall::dup(*ctxt_fd, &[])?),
             status_hndl,
             pid,
         }));
         let thread_weak = Rc::downgrade(&thread);
         proc.threads.push(thread);
         self.thread_lookup.insert(ident, thread_weak);
-        Ok(fd)
+        Ok(ctxt_fd)
     }
     fn on_open(&mut self, path: &str, flags: usize) -> Result<OpenResult> {
         if path == "init" {

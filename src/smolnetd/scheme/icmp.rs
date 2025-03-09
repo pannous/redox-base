@@ -1,4 +1,3 @@
-use byteorder::{ByteOrder, NetworkEndian};
 use smoltcp::iface::SocketHandle;
 use smoltcp::socket::icmp::{
     Endpoint as IcmpEndpoint, PacketBuffer as IcmpSocketBuffer,
@@ -178,8 +177,8 @@ impl<'a> SchemeSocket for IcmpSocket<'a> {
                     if buf.len() < mem::size_of::<u16>() {
                         return Err(SyscallError::new(syscall::EINVAL));
                     }
-                    let (seq_buf, payload) = buf.split_at(mem::size_of::<u16>());
-                    let seq_no = NetworkEndian::read_u16(seq_buf);
+                    let (&seq_buf, payload) = buf.split_first_chunk::<2>().unwrap();
+                    let seq_no = u16::from_be_bytes(seq_buf);
                     let icmp_repr = Icmpv4Repr::EchoRequest {
                         ident: file.data.ident,
                         seq_no,
@@ -218,7 +217,7 @@ impl<'a> SchemeSocket for IcmpSocket<'a> {
                 if buf.len() < mem::size_of::<u16>() + data.len() {
                     return Err(SyscallError::new(syscall::EINVAL));
                 }
-                NetworkEndian::write_u16(&mut buf[0..2], seq_no);
+                buf[0..2].copy_from_slice(&seq_no.to_be_bytes());
 
                 for i in 0..data.len() {
                     buf[mem::size_of::<u16>() + i] = data[i];

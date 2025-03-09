@@ -11,9 +11,9 @@ use std::rc::Rc;
 use std::str;
 
 use libredox::flag::{self, CLOCK_MONOTONIC};
-use syscall::{self, KSMSG_CANCEL};
 use syscall::data::TimeSpec;
 use syscall::flag::{EVENT_READ, EVENT_WRITE};
+use syscall::{self, KSMSG_CANCEL};
 use syscall::{
     Error as SyscallError, EventFlags as SyscallEventFlags, Packet as SyscallPacket,
     Result as SyscallResult, SchemeBlockMut,
@@ -383,7 +383,13 @@ where
 
         if let Some(ref mut timeout) = timeout {
             let cur_time = libredox::call::clock_gettime(CLOCK_MONOTONIC)?;
-            *timeout = add_time(timeout, &TimeSpec { tv_sec: cur_time.tv_sec, tv_nsec: cur_time.tv_nsec as i32 })
+            *timeout = add_time(
+                timeout,
+                &TimeSpec {
+                    tv_sec: cur_time.tv_sec,
+                    tv_nsec: cur_time.tv_nsec as i32,
+                },
+            )
         }
 
         Ok(timeout)
@@ -641,11 +647,11 @@ where
                 SchemeFile::Socket(ref mut file) => {
                     let mut socket_set = self.socket_set.borrow_mut();
                     let socket = socket_set.get_mut::<SocketT>(file.socket_handle);
-                    
+
                     let ret = SocketT::read_buf(socket, file, buf);
                     match ret {
                         Ok(None) => {}
-                        _ => file.read_notified = false
+                        _ => file.read_notified = false,
                     }
 
                     return ret;

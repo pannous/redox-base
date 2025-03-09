@@ -1,16 +1,19 @@
-use smoltcp::socket::icmp::{Endpoint as IcmpEndpoint, PacketMetadata as IcmpPacketMetadata, Socket as IcmpSocket, PacketBuffer as IcmpSocketBuffer};
+use byteorder::{ByteOrder, NetworkEndian};
 use smoltcp::iface::SocketHandle;
+use smoltcp::socket::icmp::{
+    Endpoint as IcmpEndpoint, PacketBuffer as IcmpSocketBuffer,
+    PacketMetadata as IcmpPacketMetadata, Socket as IcmpSocket,
+};
 use smoltcp::wire::{Icmpv4Packet, Icmpv4Repr, IpAddress, IpListenEndpoint};
 use std::mem;
 use std::str;
-use syscall::{Error as SyscallError, Result as SyscallResult};
 use syscall;
-use byteorder::{ByteOrder, NetworkEndian};
+use syscall::{Error as SyscallError, Result as SyscallResult};
 
+use super::socket::{Context, DupResult, SchemeFile, SchemeSocket, SocketFile, SocketScheme};
+use super::{Smolnetd, SocketSet};
 use crate::port_set::PortSet;
 use crate::router::Router;
-use super::socket::{DupResult, SchemeFile, SchemeSocket, SocketFile, SocketScheme, Context};
-use super::{Smolnetd, SocketSet};
 
 pub type IcmpScheme = SocketScheme<IcmpSocket<'static>>;
 
@@ -75,7 +78,7 @@ impl<'a> SchemeSocket for IcmpSocket<'a> {
         path: &str,
         _uid: u32,
         ident_set: &mut Self::SchemeDataT,
-        _context: &Context
+        _context: &Context,
     ) -> SyscallResult<(SocketHandle, Self::DataT)> {
         use std::str::FromStr;
 
@@ -95,12 +98,12 @@ impl<'a> SchemeSocket for IcmpSocket<'a> {
                 let socket = IcmpSocket::new(
                     IcmpSocketBuffer::new(
                         vec![IcmpPacketMetadata::EMPTY; Smolnetd::SOCKET_BUFFER_SIZE],
-                        vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE]
+                        vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE],
                     ),
                     IcmpSocketBuffer::new(
                         vec![IcmpPacketMetadata::EMPTY; Smolnetd::SOCKET_BUFFER_SIZE],
-                        vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE]
-                    )
+                        vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE],
+                    ),
                 );
                 let handle = socket_set.add(socket);
                 let icmp_socket = socket_set.get_mut::<IcmpSocket>(handle);
@@ -127,12 +130,12 @@ impl<'a> SchemeSocket for IcmpSocket<'a> {
                 let socket = IcmpSocket::new(
                     IcmpSocketBuffer::new(
                         vec![IcmpPacketMetadata::EMPTY; Smolnetd::SOCKET_BUFFER_SIZE],
-                        vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE]
+                        vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE],
                     ),
                     IcmpSocketBuffer::new(
                         vec![IcmpPacketMetadata::EMPTY; Smolnetd::SOCKET_BUFFER_SIZE],
-                        vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE]
-                    )
+                        vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE],
+                    ),
                 );
                 let handle = socket_set.add(socket);
                 let icmp_socket = socket_set.get_mut::<IcmpSocket>(handle);
@@ -183,16 +186,15 @@ impl<'a> SchemeSocket for IcmpSocket<'a> {
                         data: payload,
                     };
 
-                    let icmp_payload = self.send(icmp_repr.buffer_len(), file.data.ip)
+                    let icmp_payload = self
+                        .send(icmp_repr.buffer_len(), file.data.ip)
                         .map_err(|_| syscall::Error::new(syscall::EINVAL))?;
                     let mut icmp_packet = Icmpv4Packet::new_unchecked(icmp_payload);
                     //TODO: replace Default with actual caps
                     icmp_repr.emit(&mut icmp_packet, &Default::default());
                     Ok(Some(buf.len()))
                 }
-                IcmpSocketType::Udp => {
-                    Err(SyscallError::new(syscall::EINVAL))
-                }
+                IcmpSocketType::Udp => Err(SyscallError::new(syscall::EINVAL)),
             }
         } else if file.flags & syscall::O_NONBLOCK == syscall::O_NONBLOCK {
             Err(SyscallError::new(syscall::EAGAIN))

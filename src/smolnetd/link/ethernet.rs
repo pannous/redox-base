@@ -111,7 +111,8 @@ impl EthernetLink {
             return;
         };
 
-        let Ok(repr) = ArpPacket::new_checked(packet).and_then(|packet| ArpRepr::parse(&packet)) else {
+        let Ok(repr) = ArpPacket::new_checked(packet).and_then(|packet| ArpRepr::parse(&packet))
+        else {
             debug!("Dropped incomming arp packet on {} (Malformed)", self.name);
             return;
         };
@@ -124,7 +125,8 @@ impl EthernetLink {
                 target_hardware_addr,
                 target_protocol_addr,
             } => {
-                let is_unicast_mac = target_hardware_addr != EMPTY_MAC && !target_hardware_addr.is_broadcast();
+                let is_unicast_mac =
+                    target_hardware_addr != EMPTY_MAC && !target_hardware_addr.is_broadcast();
 
                 if is_unicast_mac && hardware_address != target_hardware_addr {
                     // Only process packet that are for us
@@ -237,7 +239,10 @@ impl EthernetLink {
 
     fn handle_missing_neighbor(&mut self, next_hop: IpAddress, packet: &[u8], now: Instant) {
         let Ok(buf) = self.waiting_packets.enqueue(packet.len(), next_hop) else {
-            warn!("Dropped packet on {} because waiting queue was full", self.name);
+            warn!(
+                "Dropped packet on {} because waiting queue was full",
+                self.name
+            );
             return;
         };
         buf.copy_from_slice(packet);

@@ -1,7 +1,7 @@
-use std::rc::Rc;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
 use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 pub struct Notifier {
     listeners: BTreeMap<String, BTreeSet<usize>>,

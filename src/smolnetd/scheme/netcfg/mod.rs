@@ -240,7 +240,7 @@ fn mk_root_node(
                                     dev.set_ip_address(cidr);
                                     // FIXME: Here, the insert 0 is a workaround to let UDP sockets
                                     // work with this interface only.
-                                    // Smoltcp takes the first ip address when looking for a source 
+                                    // Smoltcp takes the first ip address when looking for a source
                                     // ip address when sending UDP packets.
                                     // This behavior will have to be fixed as it's our route table
                                     // job to find give this source.

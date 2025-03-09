@@ -1,14 +1,16 @@
-use smoltcp::socket::raw::{PacketMetadata as RawPacketMetadata, Socket as RawSocket, PacketBuffer as RawSocketBuffer};
 use smoltcp::iface::SocketHandle;
+use smoltcp::socket::raw::{
+    PacketBuffer as RawSocketBuffer, PacketMetadata as RawPacketMetadata, Socket as RawSocket,
+};
 use smoltcp::wire::{IpProtocol, IpVersion};
 use std::str;
-use syscall::{Error as SyscallError, Result as SyscallResult};
 use syscall;
+use syscall::{Error as SyscallError, Result as SyscallResult};
 
 use crate::router::Router;
 
+use super::socket::{Context, DupResult, SchemeFile, SchemeSocket, SocketFile, SocketScheme};
 use super::{Smolnetd, SocketSet};
-use super::socket::{DupResult, SchemeFile, SchemeSocket, SocketFile, SocketScheme, Context};
 
 pub type IpScheme = SocketScheme<RawSocket<'static>>;
 
@@ -60,7 +62,7 @@ impl<'a> SchemeSocket for RawSocket<'a> {
         path: &str,
         uid: u32,
         _: &mut Self::SchemeDataT,
-        _context: &Context
+        _context: &Context,
     ) -> SyscallResult<(SocketHandle, Self::DataT)> {
         if uid != 0 {
             return Err(SyscallError::new(syscall::EACCES));
@@ -70,11 +72,11 @@ impl<'a> SchemeSocket for RawSocket<'a> {
 
         let rx_buffer = RawSocketBuffer::new(
             vec![RawPacketMetadata::EMPTY; Smolnetd::SOCKET_BUFFER_SIZE],
-            vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE]
+            vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE],
         );
         let tx_buffer = RawSocketBuffer::new(
             vec![RawPacketMetadata::EMPTY; Smolnetd::SOCKET_BUFFER_SIZE],
-            vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE]
+            vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE],
         );
         let ip_socket = RawSocket::new(
             IpVersion::Ipv4,

@@ -1,20 +1,23 @@
 use std::borrow::ToOwned;
-use std::collections::{BTreeMap, BTreeSet};
-use std::collections::VecDeque;
 use std::collections::btree_map::Entry;
+use std::collections::VecDeque;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::{ErrorKind, Read, Write};
 use std::mem;
+use std::net::Ipv4Addr;
 use std::os::unix::io::RawFd;
+use std::rc::Rc;
 use std::str;
 use std::str::FromStr;
-use std::rc::Rc;
-use std::net::Ipv4Addr;
 
 use libredox::flag;
-use syscall::data::TimeSpec;
-use syscall::{Error as SyscallError, EventFlags as SyscallEventFlags, Packet as SyscallPacket, Result as SyscallResult, SchemeMut};
 use syscall;
+use syscall::data::TimeSpec;
+use syscall::{
+    Error as SyscallError, EventFlags as SyscallEventFlags, Packet as SyscallPacket,
+    Result as SyscallResult, SchemeMut,
+};
 
 use event::EventQueue;
 use redox_netstack::error::{Error, Result};
@@ -90,17 +93,25 @@ impl Domains {
             &format!("udp:{}:53", self.nameserver),
             libredox::flag::O_RDWR | libredox::flag::O_CREAT | libredox::flag::O_NONBLOCK,
             0,
-        ).ok()?;
+        )
+        .ok()?;
         if libredox::call::write(udp_fd, &packet) != Ok(packet.len()) {
             libredox::call::close(udp_fd).ok()?;
             return None;
         }
-        queue.subscribe(udp_fd, EventSource::Other, event::EventFlags::READ).ok()?;
-        self.requests.insert(udp_fd as RawFd, domain.to_owned().into());
+        queue
+            .subscribe(udp_fd, EventSource::Other, event::EventFlags::READ)
+            .ok()?;
+        self.requests
+            .insert(udp_fd as RawFd, domain.to_owned().into());
         Some(udp_fd as RawFd)
     }
 
-    fn on_time_event(&mut self, cur_time: &TimeSpec, queue: &EventQueue<EventSource>) -> Result<BTreeSet<usize>> {
+    fn on_time_event(
+        &mut self,
+        cur_time: &TimeSpec,
+        queue: &EventQueue<EventSource>,
+    ) -> Result<BTreeSet<usize>> {
         while let Some((timeout, domain)) = self.resolved_timeouts.pop_front() {
             if timeout.tv_sec > cur_time.tv_sec
                 || (timeout.tv_sec == cur_time.tv_sec && timeout.tv_nsec > cur_time.tv_nsec)
@@ -139,7 +150,9 @@ impl Domains {
                         } = e.remove()
                         {
                             fds_to_wakeup.append(&mut waiting_fds);
-                            queue.unsubscribe(socket_fd as usize).map_err(|e| Error::from_syscall_error(e.into(), "unsubscribe failure"))?;
+                            queue.unsubscribe(socket_fd as usize).map_err(|e| {
+                                Error::from_syscall_error(e.into(), "unsubscribe failure")
+                            })?;
                             let _ = libredox::call::close(socket_fd as usize);
                         }
                     }
@@ -150,7 +163,12 @@ impl Domains {
         Ok(fds_to_wakeup)
     }
 
-    fn on_fd_event(&mut self, fd: RawFd, cur_time: &TimeSpec, queue: &EventQueue<EventSource>) -> Option<DnsParsingResult> {
+    fn on_fd_event(
+        &mut self,
+        fd: RawFd,
+        cur_time: &TimeSpec,
+        queue: &EventQueue<EventSource>,
+    ) -> Option<DnsParsingResult> {
         let e = match self.requests.entry(fd) {
             Entry::Vacant(_) => {
                 return None;
@@ -227,7 +245,13 @@ impl Domains {
         }
     }
 
-    fn file_from_domain(&mut self, domain: &str, fd: usize, cur_time: &TimeSpec, queue: &EventQueue<EventSource>) -> DnsFile {
+    fn file_from_domain(
+        &mut self,
+        domain: &str,
+        fd: usize,
+        cur_time: &TimeSpec,
+        queue: &EventQueue<EventSource>,
+    ) -> DnsFile {
         if let Some(domain_data) = self.domains.get_mut(domain) {
             match *domain_data {
                 Domain::Resolved { ref data } => DnsFile::Resolved {
@@ -339,12 +363,14 @@ impl<'q> Dnsd<'q> {
                 Ok(0) => {
                     //TODO: Cleanup must occur
                     return Ok(false);
-                },
+                }
                 Ok(_) => (),
-                Err(err) => if err.kind() == ErrorKind::WouldBlock {
-                    return Ok(true);
-                } else {
-                    return Err(Error::from(err));
+                Err(err) => {
+                    if err.kind() == ErrorKind::WouldBlock {
+                        return Ok(true);
+                    } else {
+                        return Err(Error::from(err));
+                    }
                 }
             }
             // TODO: implement cancellation
@@ -364,7 +390,10 @@ impl<'q> Dnsd<'q> {
         let cur_time = libredox::call::clock_gettime(libredox::flag::CLOCK_MONOTONIC)
             .map_err(|e| Error::from_syscall_error(e.into(), "Can't get time"))?;
         // TODO
-        let cur_time = TimeSpec { tv_sec: cur_time.tv_sec, tv_nsec: cur_time.tv_nsec as _ };
+        let cur_time = TimeSpec {
+            tv_sec: cur_time.tv_sec,
+            tv_nsec: cur_time.tv_nsec as _,
+        };
 
         match self.domains.on_fd_event(fd, &cur_time, self.queue) {
             Some(DnsParsingResult::FailFiles(fds_to_fail)) => {
@@ -432,7 +461,15 @@ impl SchemeMut for Dnsd<'_> {
         let fd = self.next_fd;
         self.next_fd += 1;
         let cur_time = libredox::call::clock_gettime(flag::CLOCK_MONOTONIC)?;
-        let dns_file = self.domains.file_from_domain(&domain, fd, &TimeSpec { tv_sec: cur_time.tv_sec, tv_nsec: cur_time.tv_nsec as i32 }, self.queue);
+        let dns_file = self.domains.file_from_domain(
+            &domain,
+            fd,
+            &TimeSpec {
+                tv_sec: cur_time.tv_sec,
+                tv_nsec: cur_time.tv_nsec as i32,
+            },
+            self.queue,
+        );
         self.files.insert(fd, dns_file);
         trace!("Open {} {}", &domain, fd);
         Ok(fd)
@@ -440,7 +477,8 @@ impl SchemeMut for Dnsd<'_> {
 
     fn close(&mut self, fd: usize) -> SyscallResult<usize> {
         trace!("Close {}", fd);
-        let file = self.files
+        let file = self
+            .files
             .get_mut(&fd)
             .ok_or_else(|| SyscallError::new(syscall::EBADF))?;
 
@@ -458,14 +496,23 @@ impl SchemeMut for Dnsd<'_> {
 
     fn read(&mut self, fd: usize, buf: &mut [u8]) -> SyscallResult<usize> {
         trace!("Read {}", fd);
-        let file = self.files
+        let file = self
+            .files
             .get_mut(&fd)
             .ok_or_else(|| SyscallError::new(syscall::EBADF))?;
 
         let cur_time = libredox::call::clock_gettime(flag::CLOCK_MONOTONIC)?;
 
         if let DnsFile::Waiting { ref domain } = *file {
-            *file = self.domains.file_from_domain(domain, fd, &TimeSpec { tv_sec: cur_time.tv_sec, tv_nsec: cur_time.tv_nsec as i32 }, self.queue);
+            *file = self.domains.file_from_domain(
+                domain,
+                fd,
+                &TimeSpec {
+                    tv_sec: cur_time.tv_sec,
+                    tv_nsec: cur_time.tv_nsec as i32,
+                },
+                self.queue,
+            );
         }
 
         match *file {
@@ -487,7 +534,11 @@ impl SchemeMut for Dnsd<'_> {
         }
     }
 
-    fn fevent(&mut self, _fd: usize, _events: SyscallEventFlags) -> SyscallResult<SyscallEventFlags> {
+    fn fevent(
+        &mut self,
+        _fd: usize,
+        _events: SyscallEventFlags,
+    ) -> SyscallResult<SyscallEventFlags> {
         Ok(SyscallEventFlags::empty())
     }
 

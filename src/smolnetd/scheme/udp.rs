@@ -1,14 +1,16 @@
-use smoltcp::socket::udp::{PacketMetadata as UdpPacketMetadata, Socket as UdpSocket, PacketBuffer as UdpSocketBuffer};
 use smoltcp::iface::SocketHandle;
+use smoltcp::socket::udp::{
+    PacketBuffer as UdpSocketBuffer, PacketMetadata as UdpPacketMetadata, Socket as UdpSocket,
+};
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 use std::str;
-use syscall::{Error as SyscallError, Result as SyscallResult};
 use syscall;
+use syscall::{Error as SyscallError, Result as SyscallResult};
 
+use super::socket::{Context, DupResult, SchemeFile, SchemeSocket, SocketFile, SocketScheme};
+use super::{parse_endpoint, Smolnetd, SocketSet};
 use crate::port_set::PortSet;
 use crate::router::Router;
-use super::socket::{DupResult, SchemeFile, SchemeSocket, SocketFile, SocketScheme, Context};
-use super::{parse_endpoint, Smolnetd, SocketSet};
 
 pub type UdpScheme = SocketScheme<UdpSocket<'static>>;
 
@@ -62,7 +64,7 @@ impl<'a> SchemeSocket for UdpSocket<'a> {
         path: &str,
         uid: u32,
         port_set: &mut Self::SchemeDataT,
-        _context: &Context
+        _context: &Context,
     ) -> SyscallResult<(SocketHandle, Self::DataT)> {
         let mut parts = path.split('/');
         let remote_endpoint = parse_endpoint(parts.next().unwrap_or(""));
@@ -74,11 +76,11 @@ impl<'a> SchemeSocket for UdpSocket<'a> {
 
         let rx_buffer = UdpSocketBuffer::new(
             vec![UdpPacketMetadata::EMPTY; Smolnetd::SOCKET_BUFFER_SIZE],
-            vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE]
+            vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE],
         );
         let tx_buffer = UdpSocketBuffer::new(
             vec![UdpPacketMetadata::EMPTY; Smolnetd::SOCKET_BUFFER_SIZE],
-            vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE]
+            vec![0; Router::MTU * Smolnetd::SOCKET_BUFFER_SIZE],
         );
         let udp_socket = UdpSocket::new(rx_buffer, tx_buffer);
 
@@ -96,7 +98,6 @@ impl<'a> SchemeSocket for UdpSocket<'a> {
         udp_socket
             .bind(local_endpoint)
             .expect("Can't bind udp socket to local endpoint");
-
 
         Ok((socket_handle, remote_endpoint))
     }
@@ -122,7 +123,12 @@ impl<'a> SchemeSocket for UdpSocket<'a> {
         }
         if self.can_send() {
             let endpoint = file.data;
-            let endpoint = IpEndpoint::new(endpoint.addr.expect("If we can send, this should be specified"), endpoint.port);
+            let endpoint = IpEndpoint::new(
+                endpoint
+                    .addr
+                    .expect("If we can send, this should be specified"),
+                endpoint.port,
+            );
             self.send_slice(buf, endpoint).expect("Can't send slice");
             Ok(Some(buf.len()))
         } else if file.flags & syscall::O_NONBLOCK == syscall::O_NONBLOCK {

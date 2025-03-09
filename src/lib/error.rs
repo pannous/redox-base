@@ -1,7 +1,7 @@
 use std::convert;
 use std::fmt;
-use std::result;
 use std::io::Error as IOError;
+use std::result;
 use syscall::error::Error as SyscallError;
 
 #[derive(Debug)]
@@ -35,7 +35,7 @@ impl Error {
     pub fn other_error<S: Into<String>>(descr: S) -> Error {
         Error {
             error_type: ErrorType::Other,
-            descr: descr.into()
+            descr: descr.into(),
         }
     }
 }

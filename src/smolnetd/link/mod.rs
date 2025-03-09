@@ -1,14 +1,13 @@
-pub mod loopback;
 pub mod ethernet;
+pub mod loopback;
 
 use std::rc::Rc;
 
 use smoltcp::time::Instant;
-use smoltcp::wire::{IpAddress, EthernetAddress, IpCidr};
+use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 
 /// Represent a link layer device (eth0, loopback...)
 pub trait LinkDevice {
-
     /// Send the given packet to the machine with the `next_hop` ip address
     /// This method cannot fail so it's the implementor responsability
     /// to buffer packets which can't be sent immediatly or decide to

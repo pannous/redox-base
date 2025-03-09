@@ -199,7 +199,7 @@ impl<'a> SchemeSocket for TcpSocket<'a> {
             "listen" => {
                 if let SchemeFile::Socket(ref tcp_handle) = *file {
                     let Some(listen_enpoint) = tcp_handle.data else {
-                        // This socket is not listening so we can't accept a connection 
+                        // This socket is not listening so we can't accept a connection
                         return Err(SyscallError::new(syscall::EINVAL));
                     };
 

@@ -51,8 +51,7 @@ impl LinkDevice for LoopbackDevice {
         None
     }
 
-    fn set_mac_address(&mut self, _addr: smoltcp::wire::EthernetAddress) {
-    }
+    fn set_mac_address(&mut self, _addr: smoltcp::wire::EthernetAddress) {}
 
     fn ip_address(&self) -> Option<smoltcp::wire::IpCidr> {
         Some("127.0.0.1/8".parse().unwrap())
@@ -61,6 +60,4 @@ impl LinkDevice for LoopbackDevice {
     fn set_ip_address(&mut self, _addr: smoltcp::wire::IpCidr) {
         todo!()
     }
-
-
 }

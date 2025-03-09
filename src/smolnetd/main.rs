@@ -1,12 +1,5 @@
-extern crate event;
 #[macro_use]
 extern crate log;
-extern crate byteorder;
-extern crate netutils;
-extern crate redox_netstack;
-extern crate smoltcp;
-extern crate syscall;
-
 use std::process;
 
 use anyhow::{anyhow, bail, Context, Result};

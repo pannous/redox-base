@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Write;
+use std::mem;
+use std::sync::mpsc::{self, Sender};
 
 use redox_scheme::SchemeMut;
 use syscall::error::*;
@@ -12,16 +14,27 @@ pub struct LogHandle {
 
 pub struct LogScheme {
     next_id: usize,
-    files: Vec<File>,
+    output_tx: Sender<Vec<u8>>,
     handles: BTreeMap<usize, LogHandle>,
     pub current_pid: usize,
 }
 
 impl LogScheme {
-    pub fn new(files: Vec<File>) -> Self {
+    pub fn new(mut files: Vec<File>) -> Self {
+        let (output_tx, output_rx) = mpsc::channel::<Vec<u8>>();
+
+        std::thread::spawn(move || {
+            for line in output_rx {
+                for file in &mut files {
+                    let _ = file.write(&line);
+                    let _ = file.flush();
+                }
+            }
+        });
+
         LogScheme {
             next_id: 0,
-            files,
+            output_tx,
             handles: BTreeMap::new(),
             current_pid: 0,
         }
@@ -96,12 +109,7 @@ impl SchemeMut for LogScheme {
             handle_buf.push(b);
 
             if b == b'\n' {
-                for file in self.files.iter_mut() {
-                    let _ = file.write(&handle_buf);
-                    let _ = file.flush();
-                }
-
-                handle_buf.clear();
+                self.output_tx.send(mem::take(handle_buf)).unwrap();
             }
 
             i += 1;

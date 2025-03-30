@@ -1189,24 +1189,47 @@ impl<'a> ProcScheme<'a> {
     ) -> Result<()> {
         let mut num_succeeded = 0;
 
-        match target {
-            ProcKillTarget::SingleProc(proc) => (),
-            ProcKillTarget::ProcGroup(grp) => {
-                for (pid, proc) in self.processes.iter().filter(|(_, p)| p.pgid == grp) {
-                    self.on_send_sig(caller_pid);
-                }
+        let mut killed_self = false; // TODO
+        let is_sigchld_to_parent = false; // TODO
+
+        let match_grp = match target {
+            ProcKillTarget::SingleProc(pid) => {
+                return self.on_send_sig(
+                    caller_pid,
+                    KillTarget::Proc(ProcessId(pid)),
+                    signal,
+                    &mut killed_self,
+                    mode,
+                    is_sigchld_to_parent,
+                )
             }
-            ProcKillTarget::All => {
-                for (pid, proc) in self.processes.iter() {
-                    self.on_send_sig(caller_pid);
-                }
+            ProcKillTarget::All => None,
+            ProcKillTarget::ProcGroup(grp) => Some(ProcessId(grp)),
+        };
+
+        for (pid, proc) in self.processes.iter() {
+            if match_grp.map_or(false, |g| proc.pgid != g) {
+                continue;
+            }
+            let res = self.on_send_sig(
+                caller_pid,
+                KillTarget::Proc(*pid),
+                signal,
+                &mut killed_self,
+                mode,
+                is_sigchld_to_parent,
+            );
+            match res {
+                Ok(()) => (),
+                Err(err) if num_succeeded > 0 => break,
+                Err(err) => return Err(err),
             }
         }
 
         Ok(())
     }
     pub fn on_send_sig(
-        &mut self,
+        &self,
         caller_pid: ProcessId,
         target: KillTarget,
         signal: u8,
@@ -1214,44 +1237,42 @@ impl<'a> ProcScheme<'a> {
         mode: KillMode,
         is_sigchld_to_parent: bool,
     ) -> Result<()> {
-        debug_assert!(sig <= 64);
-
         let sig = usize::from(signal);
+        debug_assert!(sig <= 64);
         let sig_group = (sig - 1) / 32;
         let sig_idx = sig - 1;
 
-        /*let (context_lock, process_lock) = match target {
-            KillTarget::Thread(ref c) => (Arc::clone(&c), Arc::clone(&c.read().process)),
-            KillTarget::Process(ref p) => (
-                p.read()
-                    .threads
-                    .iter()
-                    .filter_map(|t| t.upgrade())
-                    .next()
-                    .ok_or(Error::new(ESRCH))?,
-                Arc::clone(p),
-            ),
-        };*/
-        let proc_info = process_lock.read().info;
+        let target_pid = match target {
+            KillTarget::Proc(pid) => pid,
+            KillTarget::Thread(thread) => thread.borrow().pid,
+        };
+        let target_proc = self.processes.get(&target_pid).ok_or(Error::new(ESRCH))?;
 
         enum SendResult {
             Succeeded,
-            SucceededSigchld { orig_signal: usize },
-            SucceededSigcont { ppid: ProcessId, pgid: ProcessId },
+            SucceededSigchld {
+                orig_signal: usize,
+                ppid: ProcessId,
+                pgid: ProcessId,
+            },
+            SucceededSigcont {
+                ppid: ProcessId,
+                pgid: ProcessId,
+            },
             FullQ,
             Invalid,
         }
 
         let result = (|| {
-            let is_self = context::is_current(&context_lock);
+            // FIXME
+            let is_self = false;
+            //let is_self = context::is_current(&context_lock);
 
             // If sig = 0, test that process exists and can be signalled, but don't send any
             // signal.
             if sig == 0 {
                 return SendResult::Succeeded;
             }
-
-            let mut process_guard = process_lock.write();
 
             if sig == SIGCONT
                 && let ProcessStatus::Stopped(_sig) = process_guard.status

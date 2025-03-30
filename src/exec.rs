@@ -34,7 +34,7 @@ pub fn main() -> ! {
         FdGuard::new(syscall::dup(*auth, b"cur-context").expect("failed to open open_via_dup"));
     let this_thr_fd = unsafe { redox_rt::initialize_freestanding(this_thr_fd) };
 
-    log::set_max_level(log::LevelFilter::Trace);
+    log::set_max_level(log::LevelFilter::Debug);
     let _ = log::set_logger(&Logger);
 
     let envs = {

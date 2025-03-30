@@ -716,6 +716,14 @@ impl<'a> ProcScheme<'a> {
                         self.on_setresugid(fd_pid, payload).map(|()| 0),
                         op,
                     )),
+                    ProcCall::Kill => {
+                        log::error!("KILL STUB");
+                        Ready(Response::ok(0, op))
+                    }
+                    ProcCall::Sigq => {
+                        log::error!("SIGQ STUB");
+                        Ready(Response::ok(0, op))
+                    }
                 }
             }
         }

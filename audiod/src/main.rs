@@ -66,7 +66,7 @@ fn daemon(daemon: Daemon) -> Result<()> {
     libredox::call::setrens(0, 0)?;
 
     // The scheme is now ready to accept requests, notify the original process
-    daemon.ready()?;
+    daemon.ready().unwrap();
 
     let mut pending = Vec::new();
 

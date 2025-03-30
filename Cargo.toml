@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "audiod",
     "init",
     "ipcd",
     "logd",

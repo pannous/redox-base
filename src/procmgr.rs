@@ -1332,6 +1332,13 @@ impl<'a> ProcScheme<'a> {
             }
             ProcKillTarget::All => None,
             ProcKillTarget::ProcGroup(grp) => Some(ProcessId(grp)),
+            ProcKillTarget::ThisGroup => Some(
+                self.processes
+                    .get(&caller_pid)
+                    .ok_or(Error::new(ESRCH))?
+                    .borrow()
+                    .pgid,
+            ),
         };
 
         for (pid, proc_rc) in self.processes.iter() {

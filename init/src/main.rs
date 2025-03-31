@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::ffi::CString;
 use std::fs::{read_dir, File};
-use std::io::{BufRead, BufReader, Result, Write};
+use std::io::{BufRead, BufReader, Result};
 use std::path::Path;
 use std::process::Command;
 
@@ -186,15 +186,13 @@ pub fn run(file: &Path) -> Result<()> {
                         }
 
                         match command.spawn() {
-                            Ok(child) => match child.wait_with_output() {
-                                Ok(output) => {
-                                    std::io::stdout()
-                                        .write_all(output.stdout.as_slice())
-                                        .unwrap();
-                                    std::io::stderr()
-                                        .write_all(output.stderr.as_slice())
-                                        .unwrap();
-                                    println!("{cmd} done.");
+                            Ok(mut child) => match child.wait() {
+                                Ok(exit_status) => {
+                                    if !exit_status.success() {
+                                        println!("{cmd} failed with {exit_status}");
+                                    } else {
+                                        println!("{cmd} done.");
+                                    }
                                 }
                                 Err(err) => {
                                     println!("init: failed to wait for '{}': {}", line, err)

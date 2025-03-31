@@ -645,10 +645,12 @@ impl<'a> ProcScheme<'a> {
                     pid: pid.0 as u32,
                     pgid: process.pgid.0 as u32,
                     ppid: process.ppid.0 as u32,
-                    euid: process.euid,
-                    egid: process.egid,
                     ruid: process.ruid,
+                    euid: process.euid,
+                    suid: process.suid,
                     rgid: process.rgid,
+                    egid: process.egid,
+                    sgid: process.sgid,
                     ens: process.ens,
                     rns: process.rns,
                 };
@@ -1093,41 +1095,39 @@ impl<'a> ProcScheme<'a> {
             .ok_or(Error::new(ESRCH))?
             .borrow_mut();
 
-        let check = |new_ugid: u32, proc: &Process, gid_not_uid: bool| {
-            if proc.euid == 0 {
-                return Ok(());
-            }
-            if gid_not_uid && ![proc.rgid, proc.egid, proc.sgid].contains(&new_ugid) {
+        if proc.euid != 0 {
+            if ![new_ruid, new_euid, new_suid]
+                .iter()
+                .filter_map(|x| *x)
+                .all(|new_id| [proc.ruid, proc.euid, proc.suid].contains(&new_id))
+            {
                 return Err(Error::new(EPERM));
             }
-            if !gid_not_uid && ![proc.ruid, proc.euid, proc.suid].contains(&new_ugid) {
+            if ![new_rgid, new_egid, new_sgid]
+                .iter()
+                .filter_map(|x| *x)
+                .all(|new_id| [proc.rgid, proc.egid, proc.sgid].contains(&new_id))
+            {
                 return Err(Error::new(EPERM));
             }
-            Ok(())
-        };
+        }
 
         if let Some(new_ruid) = new_ruid {
-            check(new_ruid, &*proc, false)?;
             proc.ruid = new_ruid;
         }
         if let Some(new_euid) = new_euid {
-            check(new_euid, &*proc, false)?;
             proc.euid = new_euid;
         }
         if let Some(new_suid) = new_suid {
-            check(new_suid, &*proc, false)?;
             proc.suid = new_suid;
         }
         if let Some(new_rgid) = new_rgid {
-            check(new_rgid, &*proc, true)?;
             proc.rgid = new_rgid;
         }
         if let Some(new_egid) = new_egid {
-            check(new_egid, &*proc, true)?;
             proc.egid = new_egid;
         }
         if let Some(new_sgid) = new_sgid {
-            check(new_sgid, &*proc, true)?;
             proc.sgid = new_sgid;
         }
         Ok(())

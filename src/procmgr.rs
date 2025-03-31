@@ -749,10 +749,6 @@ impl<'a> ProcScheme<'a> {
                         });
                         self.work_on(state, awoken)
                     }
-                    ProcCall::SetResugid => {
-                        log::error!("SETRESUGID STUB");
-                        Ready(Response::ok(0, op))
-                    }
                     ProcCall::Setpgid => {
                         let target_pid = NonZeroUsize::new(metadata[1] as usize)
                             .map_or(fd_pid, |n| ProcessId(n.get()));

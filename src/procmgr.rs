@@ -121,10 +121,11 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
                 continue;
             };
             let thread = thread_rc.borrow();
-            let Some(proc) = scheme.processes.get_mut(&thread.pid) else {
+            let Some(proc_rc) = scheme.processes.get(&thread.pid) else {
                 // TODO?
                 continue;
             };
+            let mut proc = proc_rc.borrow_mut();
             log::trace!("THREAD EVENT FROM {}, {}", event.data, thread.pid.0);
             let mut buf = 0_usize.to_ne_bytes();
             let _ = syscall::read(*thread.status_hndl, &mut buf).unwrap();
@@ -355,7 +356,7 @@ struct ProcessId(usize);
 const INIT_PID: ProcessId = ProcessId(1);
 
 struct ProcScheme<'a> {
-    processes: HashMap<ProcessId, Process, DefaultHashBuilder>,
+    processes: HashMap<ProcessId, Rc<RefCell<Process>>, DefaultHashBuilder>,
     sessions: HashSet<ProcessId, DefaultHashBuilder>,
     handles: Slab<Handle>,
 
@@ -466,7 +467,7 @@ impl<'a> ProcScheme<'a> {
                 let thread_weak = Rc::downgrade(&thread);
                 self.processes.insert(
                     INIT_PID,
-                    Process {
+                    Rc::new(RefCell::new(Process {
                         threads: vec![thread],
                         ppid: INIT_PID,
                         sid: INIT_PID,
@@ -484,7 +485,7 @@ impl<'a> ProcScheme<'a> {
                         waitpid_waiting: VecDeque::new(),
 
                         pctl: None,
-                    },
+                    })),
                 );
                 self.sessions.insert(INIT_PID);
 
@@ -499,6 +500,8 @@ impl<'a> ProcScheme<'a> {
     fn fork(&mut self, parent_pid: ProcessId) -> Result<ProcessId> {
         let child_pid = self.new_id();
 
+        let proc_guard = self.processes.get(&parent_pid).ok_or(Error::new(EBADFD))?;
+
         let Process {
             pgid,
             sid,
@@ -509,7 +512,7 @@ impl<'a> ProcScheme<'a> {
             ens,
             rns,
             ..
-        } = *self.processes.get(&parent_pid).ok_or(Error::new(EBADFD))?;
+        } = *proc_guard.borrow();
 
         let new_ctxt_fd = FdGuard::new(syscall::dup(**self.auth, b"new-context")?);
         let attr_fd = FdGuard::new(syscall::dup(
@@ -542,7 +545,7 @@ impl<'a> ProcScheme<'a> {
 
         self.processes.insert(
             child_pid,
-            Process {
+            Rc::new(RefCell::new(Process {
                 threads: vec![thread],
                 ppid: parent_pid,
                 pgid,
@@ -561,14 +564,16 @@ impl<'a> ProcScheme<'a> {
                 waitpid_waiting: VecDeque::new(),
 
                 pctl: None, // TODO
-            },
+            })),
         );
         self.thread_lookup.insert(thread_ident, thread_weak);
         Ok(child_pid)
     }
     fn new_thread(&mut self, pid: ProcessId) -> Result<FdGuard> {
         // TODO: deduplicate code with fork
-        let proc = self.processes.get_mut(&pid).ok_or(Error::new(EBADFD))?;
+        let proc_rc = self.processes.get_mut(&pid).ok_or(Error::new(EBADFD))?;
+        let mut proc = proc_rc.borrow_mut();
+
         let ctxt_fd = FdGuard::new(syscall::dup(**self.auth, b"new-context")?);
 
         let attr_fd = FdGuard::new(syscall::dup(
@@ -618,7 +623,8 @@ impl<'a> ProcScheme<'a> {
     fn on_read(&mut self, id: usize, buf: &mut [u8]) -> Result<usize> {
         match self.handles[id] {
             Handle::Proc(pid) => {
-                let process = self.processes.get(&pid).ok_or(Error::new(EBADFD))?;
+                let proc_rc = self.processes.get(&pid).ok_or(Error::new(EBADFD))?;
+                let process = proc_rc.borrow();
                 let metadata = ProcMeta {
                     pid: pid.0 as u32,
                     pgid: process.pgid.0 as u32,
@@ -658,7 +664,7 @@ impl<'a> ProcScheme<'a> {
                         .ok()
                         .and_then(|s| s.parse::<usize>().ok())
                         .ok_or(Error::new(EINVAL))?;
-                    let process = self.processes.get(&pid).ok_or(Error::new(EBADFD))?;
+                    let process = self.processes.get(&pid).ok_or(Error::new(EBADFD))?.borrow();
                     let thread = process.threads.get(idx).ok_or(Error::new(ENOENT))?.borrow();
 
                     return Ok(OpenResult::OtherScheme {
@@ -798,8 +804,16 @@ impl<'a> ProcScheme<'a> {
         caller_pid: ProcessId,
         target_pid: ProcessId,
     ) -> Result<ProcessId> {
-        let caller_proc = self.processes.get(&caller_pid).ok_or(Error::new(ESRCH))?;
-        let target_proc = self.processes.get(&target_pid).ok_or(Error::new(ESRCH))?;
+        let caller_proc = self
+            .processes
+            .get(&caller_pid)
+            .ok_or(Error::new(ESRCH))?
+            .borrow();
+        let target_proc = self
+            .processes
+            .get(&target_pid)
+            .ok_or(Error::new(ESRCH))?
+            .borrow();
 
         // Although not required, POSIX allows the impl to forbid getting the pgid of processes
         // outside of the caller's session.
@@ -817,10 +831,8 @@ impl<'a> ProcScheme<'a> {
     ) -> Result<()> {
         let caller_proc = self.processes.get(&caller_pid).ok_or(Error::new(ESRCH))?;
 
-        let proc = self
-            .processes
-            .get_mut(&target_pid)
-            .ok_or(Error::new(ESRCH))?;
+        let proc_rc = self.processes.get(&target_pid).ok_or(Error::new(ESRCH))?;
+        let mut proc = proc_rc.borrow_mut();
 
         // Session leaders cannot have their pgid changed.
         if proc.sid == target_pid {
@@ -840,9 +852,12 @@ impl<'a> ProcScheme<'a> {
         awoken: &mut VecDeque<Id>,
         tag: Tag,
     ) -> Poll<Response> {
-        let Some(process) = self.processes.get_mut(&pid) else {
+        let Some(proc_rc) = self.processes.get(&pid) else {
             return Response::ready_err(EBADFD, tag);
         };
+        let mut process_guard = proc_rc.borrow_mut();
+        let process = &mut *process_guard;
+
         match process.status {
             ProcessStatus::Stopped(_) | ProcessStatus::PossiblyRunnable => (),
             //ProcessStatus::Exiting => return Pending,
@@ -869,6 +884,7 @@ impl<'a> ProcScheme<'a> {
             // TODO: check?
             process.awaiting_threads_term.push(*state.key());
         }
+        drop(process_guard);
         self.work_on(
             state.insert_entry(PendingState::AwaitingThreadsTermination(pid, tag)),
             awoken,
@@ -887,12 +903,15 @@ impl<'a> ProcScheme<'a> {
         ) {
             // Check for existence of child.
             // TODO: inefficient, keep refcount?
-            if !self.processes.values().any(|p| p.ppid == this_pid) {
+            if !self.processes.values().any(|p| p.borrow().ppid == this_pid) {
                 return Ready(Err(Error::new(ECHILD)));
             }
         }
 
-        let proc = self.processes.get_mut(&this_pid).ok_or(Error::new(ESRCH))?;
+        let proc_rc = self.processes.get(&this_pid).ok_or(Error::new(ESRCH))?;
+        let mut proc_guard = proc_rc.borrow_mut();
+        let proc = &mut *proc_guard;
+
         log::trace!("WAITPID");
 
         let recv_nonblock = |waitpid: &mut BTreeMap<WaitpidKey, (ProcessId, WaitpidStatus)>,
@@ -947,11 +966,9 @@ impl<'a> ProcScheme<'a> {
                 if this_pid == pid {
                     return Ready(Err(Error::new(EINVAL)));
                 }
-                let [Some(proc), Some(target_proc)] =
-                    self.processes.get_many_mut([&this_pid, &pid])
-                else {
-                    return Ready(Err(Error::new(ESRCH)));
-                };
+                let target_proc_rc = self.processes.get(&pid).ok_or(Error::new(ESRCH))?;
+                let mut target_proc = target_proc_rc.borrow_mut();
+
                 if target_proc.ppid != this_pid {
                     return Ready(Err(Error::new(ECHILD)));
                 }
@@ -976,12 +993,13 @@ impl<'a> ProcScheme<'a> {
             }
             WaitpidTarget::ProcGroup(pgid) => {
                 let this_pgid = proc.pgid;
-                if !self.processes.values().any(|p| p.pgid == this_pgid) {
+                if !self
+                    .processes
+                    .values()
+                    .any(|p| p.borrow().pgid == this_pgid)
+                {
                     return Ready(Err(Error::new(ECHILD)));
                 }
-
-                // reborrow proc
-                let proc = self.processes.get_mut(&this_pid).ok_or(Error::new(ESRCH))?;
 
                 let key = WaitpidKey {
                     pid: None,
@@ -1015,15 +1033,16 @@ impl<'a> ProcScheme<'a> {
     fn ancestors(&self, pid: ProcessId) -> impl Iterator<Item = ProcessId> + '_ {
         struct Iter<'a> {
             cur: Option<ProcessId>,
-            procs: &'a HashMap<ProcessId, Process, DefaultHashBuilder>,
+            procs: &'a HashMap<ProcessId, Rc<RefCell<Process>>, DefaultHashBuilder>,
         }
         impl Iterator for Iter<'_> {
             type Item = ProcessId;
 
             fn next(&mut self) -> Option<Self::Item> {
                 let proc = self.procs.get(&self.cur?)?;
-                self.cur = Some(proc.ppid);
-                Some(proc.ppid)
+                let ppid = proc.borrow().ppid;
+                self.cur = Some(ppid);
+                Some(ppid)
             }
         }
         Iter {
@@ -1043,7 +1062,9 @@ impl<'a> ProcScheme<'a> {
         todo!()
     }
     pub fn on_setrens(&mut self, pid: ProcessId, rns: Option<u32>, ens: Option<u32>) -> Result<()> {
-        let process = self.processes.get_mut(&pid).ok_or(Error::new(EBADFD))?;
+        let proc_rc = self.processes.get(&pid).ok_or(Error::new(EBADFD))?;
+        let mut process = proc_rc.borrow_mut();
+
         let setrns = if rns.is_none() {
             // Ignore RNS if -1 is passed
             false
@@ -1111,9 +1132,12 @@ impl<'a> ProcScheme<'a> {
             PendingState::Placeholder => return Pending, // unreachable!(),
             // TODO
             PendingState::AwaitingThreadsTermination(current_pid, tag) => {
-                let Some(proc) = self.processes.get_mut(&current_pid) else {
+                let Some(proc_rc) = self.processes.get(&current_pid) else {
                     return Response::ready_err(ESRCH, tag);
                 };
+                let mut proc_guard = proc_rc.borrow_mut();
+                let proc = &mut *proc_guard;
+
                 if proc.threads.is_empty() {
                     log::trace!("WORKING ON AWAIT TERM");
                     let (signal, status) = match proc.status {
@@ -1126,7 +1150,8 @@ impl<'a> ProcScheme<'a> {
 
                     proc.status = ProcessStatus::Exited { signal, status };
                     let (ppid, pgid) = (proc.ppid, proc.pgid);
-                    if let Some(parent) = self.processes.get_mut(&ppid) {
+                    if let Some(parent_rc) = self.processes.get(&ppid) {
+                        let mut parent = parent_rc.borrow_mut();
                         // TODO: transfer children to parent, and all of self.waitpid
                         parent.waitpid.insert(
                             WaitpidKey {
@@ -1207,8 +1232,8 @@ impl<'a> ProcScheme<'a> {
             ProcKillTarget::ProcGroup(grp) => Some(ProcessId(grp)),
         };
 
-        for (pid, proc) in self.processes.iter() {
-            if match_grp.map_or(false, |g| proc.pgid != g) {
+        for (pid, proc_rc) in self.processes.iter() {
+            if match_grp.map_or(false, |g| proc_rc.borrow().pgid != g) {
                 continue;
             }
             let res = self.on_send_sig(
@@ -1263,6 +1288,7 @@ impl<'a> ProcScheme<'a> {
             Invalid,
         }
 
+        /*
         let result = (|| {
             // FIXME
             let is_self = false;
@@ -1275,13 +1301,12 @@ impl<'a> ProcScheme<'a> {
             }
 
             if sig == SIGCONT
-                && let ProcessStatus::Stopped(_sig) = process_guard.status
+                && let ProcessStatus::Stopped(_sig) = target_proc.status
             {
                 // Convert stopped processes to blocked if sending SIGCONT, regardless of whether
                 // SIGCONT is blocked or ignored. It can however be controlled whether the process
                 // will additionally ignore, defer, or handle that signal.
-                process_guard.status = ProcessStatus::PossiblyRunnable;
-                drop(process_guard);
+                target_proc.status = ProcessStatus::PossiblyRunnable;
 
                 let mut context_guard = context_lock.write();
                 if let Some((_, pctl, _)) = context_guard.sigcontrol() {
@@ -1457,7 +1482,7 @@ impl<'a> ProcScheme<'a> {
                 // POSIX XSI allows but does not require SIGCONT to send signals to the parent.
                 //send_signal(KillTarget::Process(parent), SIGCHLD, true, killed_self)?;
             }
-        }
+        }*/
 
         Ok(())
     }

@@ -742,7 +742,7 @@ impl<'a> ProcScheme<'a> {
                         self.work_on(state, awoken)
                     }
                     ProcCall::SetResugid => {
-                        log::error!("SETRESGUID STUB");
+                        log::error!("SETRESUGID STUB");
                         Ready(Response::ok(0, op))
                     }
                     ProcCall::Setpgid => {
@@ -772,8 +772,7 @@ impl<'a> ProcScheme<'a> {
                         ))
                     }
                     ProcCall::Setsid => {
-                        log::error!("SETSID STUB");
-                        Ready(Response::ok(0, op))
+                        Ready(Response::new(self.on_setsid(fd_pid).map(|()| 0), op))
                     }
                     ProcCall::SetResugid => Ready(Response::new(
                         self.on_setresugid(fd_pid, payload).map(|()| 0),
@@ -834,6 +833,33 @@ impl<'a> ProcScheme<'a> {
         }
 
         Ok(target_proc.pgid)
+    }
+    pub fn on_setsid(&mut self, caller_pid: ProcessId) -> Result<()> {
+        let mut caller_proc = self
+            .processes
+            .get(&caller_pid)
+            .ok_or(Error::new(ESRCH))?
+            .borrow_mut();
+
+        // POSIX: already a process group leader
+        if caller_proc.pgid == caller_pid {
+            return Err(Error::new(EPERM));
+        }
+        // TODO: more efficient?
+        // POSIX: any other process's pgid matches the caller pid
+        if self
+            .processes
+            .values()
+            .any(|p| p.borrow().pgid == caller_pid)
+        {
+            return Err(Error::new(EPERM));
+        }
+
+        caller_proc.pgid = caller_pid;
+        caller_proc.sid = caller_pid;
+
+        // TODO: Remove controlling terminal
+        Ok(())
     }
     pub fn on_getsid(&mut self, caller_pid: ProcessId, req_pid: ProcessId) -> Result<ProcessId> {
         let caller_proc = self

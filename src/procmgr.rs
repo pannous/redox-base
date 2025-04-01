@@ -28,10 +28,10 @@ use redox_scheme::{
 use slab::Slab;
 use syscall::schemev2::NewFdFlags;
 use syscall::{
-    sig_bit, ContextStatus, Error, Event, EventFlags, FobtainFdFlags, MapFlags, ProcSchemeAttrs,
-    Result, RtSigInfo, SenderInfo, SetSighandlerData, SigProcControl, Sigcontrol, EAGAIN, EBADF,
-    EBADFD, ECHILD, EEXIST, EINTR, EINVAL, EIO, ENOENT, ENOSYS, EOPNOTSUPP, EPERM, ESRCH,
-    EWOULDBLOCK, O_CLOEXEC, O_CREAT, PAGE_SIZE, SIGCONT, SIGKILL, SIGSTOP, SIGTSTP, SIGTTIN,
+    sig_bit, ContextStatus, ContextVerb, Error, Event, EventFlags, FobtainFdFlags, MapFlags,
+    ProcSchemeAttrs, Result, RtSigInfo, SenderInfo, SetSighandlerData, SigProcControl, Sigcontrol,
+    EAGAIN, EBADF, EBADFD, ECHILD, EEXIST, EINTR, EINVAL, EIO, ENOENT, ENOSYS, EOPNOTSUPP, EPERM,
+    ESRCH, EWOULDBLOCK, O_CLOEXEC, O_CREAT, PAGE_SIZE, SIGCONT, SIGKILL, SIGSTOP, SIGTSTP, SIGTTIN,
     SIGTTOU,
 };
 
@@ -468,7 +468,13 @@ impl<'a> ProcScheme<'a> {
                 self.queue
                     .subscribe(*fd, fd_out, EventFlags::EVENT_READ)
                     .expect("TODO");
-                let status_hndl = FdGuard::new(syscall::dup(*fd, b"status").expect("TODO"));
+                let status_hndl = FdGuard::new(
+                    syscall::dup(
+                        *fd,
+                        alloc::format!("auth-{}-status", **self.auth).as_bytes(),
+                    )
+                    .expect("TODO"),
+                );
 
                 let thread = Rc::new(RefCell::new(Thread {
                     fd,
@@ -534,7 +540,7 @@ impl<'a> ProcScheme<'a> {
         let new_ctxt_fd = FdGuard::new(syscall::dup(**self.auth, b"new-context")?);
         let attr_fd = FdGuard::new(syscall::dup(
             *new_ctxt_fd,
-            alloc::format!("attrs-{}", **self.auth).as_bytes(),
+            alloc::format!("auth-{}-attrs", **self.auth).as_bytes(),
         )?);
         let _ = syscall::write(
             *attr_fd,
@@ -545,7 +551,10 @@ impl<'a> ProcScheme<'a> {
                 ens,
             },
         )?;
-        let status_fd = FdGuard::new(syscall::dup(*new_ctxt_fd, b"status")?);
+        let status_fd = FdGuard::new(syscall::dup(
+            *new_ctxt_fd,
+            alloc::format!("auth-{}-status", **self.auth).as_bytes(),
+        )?);
 
         self.queue
             .subscribe(*new_ctxt_fd, *new_ctxt_fd, EventFlags::EVENT_READ)
@@ -598,7 +607,7 @@ impl<'a> ProcScheme<'a> {
 
         let attr_fd = FdGuard::new(syscall::dup(
             *ctxt_fd,
-            alloc::format!("attrs-{}", **self.auth).as_bytes(),
+            alloc::format!("auth-{}-attrs", **self.auth).as_bytes(),
         )?);
         let _ = syscall::write(
             *attr_fd,
@@ -610,7 +619,10 @@ impl<'a> ProcScheme<'a> {
             },
         )?;
 
-        let status_hndl = FdGuard::new(syscall::dup(*ctxt_fd, b"status")?);
+        let status_hndl = FdGuard::new(syscall::dup(
+            *ctxt_fd,
+            alloc::format!("auth-{}-status", **self.auth).as_bytes(),
+        )?);
 
         self.queue
             .subscribe(*ctxt_fd, *status_hndl, EventFlags::EVENT_READ)
@@ -1496,24 +1508,24 @@ impl<'a> ProcScheme<'a> {
                         .as_ref()
                         .map_or(false, |proc| proc.signal_will_stop(sig)))
             {
-                todo!("tell kernel to stop process");
-                /*
-                context_guard.status = context::Status::Blocked;
-                drop(context_guard);
-                process_lock.write().status = ProcessStatus::Stopped(sig);
-                */
+                target_proc.status = ProcessStatus::Stopped(sig);
+
+                for thread in &target_proc.threads {
+                    let thread = thread.borrow();
+                    let _ = syscall::write(
+                        *thread.status_hndl,
+                        &(ContextVerb::Stop as usize).to_ne_bytes(),
+                    )
+                    .expect("TODO");
+                    if let Some(ref tctl) = thread.sig_ctrl {
+                        tctl.word[0].fetch_and(!sig_bit(SIGCONT), Ordering::Relaxed);
+                    }
+                }
 
                 // TODO: Actually wait for, or IPI the context first, then clear bit. Not atomically safe otherwise?
                 sig_pctl
                     .pending
                     .fetch_and(!sig_bit(SIGCONT), Ordering::Relaxed);
-
-                for thread in target_proc.threads.iter() {
-                    let thread = thread.borrow();
-                    if let Some(ref tctl) = thread.sig_ctrl {
-                        tctl.word[0].fetch_and(!sig_bit(SIGCONT), Ordering::Relaxed);
-                    }
-                }
 
                 return SendResult::SucceededSigchld {
                     orig_signal: sig,
@@ -1522,12 +1534,15 @@ impl<'a> ProcScheme<'a> {
                 };
             }
             if sig == SIGKILL {
-                todo!("tell kernel to kill context");
-                /*
-                context_guard.being_sigkilled = true;
-                context_guard.unblock();
-                drop(context_guard);
-                */
+                for thread in &target_proc.threads {
+                    let thread = thread.borrow();
+                    let _ = syscall::write(
+                        *thread.status_hndl,
+                        &(ContextVerb::ForceKill as usize).to_ne_bytes(),
+                    )
+                    .expect("TODO");
+                }
+
                 *killed_self |= is_self;
 
                 // exit() will signal the parent, rather than immediately in kill()

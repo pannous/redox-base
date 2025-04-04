@@ -771,6 +771,14 @@ impl<'a> ProcScheme<'a> {
                         Self::on_sync_sigtctl(&mut *thr.borrow_mut()).map(|()| 0),
                         op,
                     )),
+                    ThreadCall::SignalThread => {
+                        let thr = Rc::clone(thr);
+                        Ready(Response::new(
+                            self.on_kill_thread(&thr, metadata[1] as u8, awoken)
+                                .map(|()| 0),
+                            op,
+                        ))
+                    }
                 }
             }
             Handle::Proc(fd_pid) => {
@@ -1361,7 +1369,7 @@ impl<'a> ProcScheme<'a> {
                             } else {
                                 state_entry.remove();
                                 Pending
-                            }
+                            };
                         }
                     };
                     // TODO: Properly remove state
@@ -1428,6 +1436,25 @@ impl<'a> ProcScheme<'a> {
     fn debug(&self) {
         log::trace!("PROCESSES\n{:#?}", self.processes,);
         log::trace!("HANDLES\n{:#?}", self.handles,);
+    }
+    pub fn on_kill_thread(
+        &mut self,
+        thread: &Rc<RefCell<Thread>>,
+        signal: u8,
+        awoken: &mut VecDeque<VirtualId>,
+    ) -> Result<()> {
+        let mut killed_self = false; // TODO
+        let is_sigchld_to_parent = false;
+        let caller_pid = thread.borrow().pid; // TODO: allow this to be specified?
+        self.on_send_sig(
+            caller_pid,
+            KillTarget::Thread(Rc::clone(thread)),
+            signal,
+            &mut killed_self,
+            KillMode::Idempotent,
+            is_sigchld_to_parent,
+            awoken,
+        )
     }
     pub fn on_kill(
         &mut self,

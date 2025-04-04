@@ -35,6 +35,13 @@ use syscall::{
     SIGTTIN, SIGTTOU,
 };
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+enum VirtualId {
+    KernelId(Id),
+    // TODO: slab or something for better ID reuse
+    // InternalId(u64),
+}
+
 pub fn run(write_fd: usize, auth: &FdGuard) {
     let socket = Socket::nonblock("proc").expect("failed to open proc scheme socket");
 
@@ -53,8 +60,8 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
     let _ = syscall::write(write_fd, &[0]);
     let _ = syscall::close(write_fd);
 
-    let mut states = HashMap::<Id, PendingState, DefaultHashBuilder>::new();
-    let mut awoken = VecDeque::<Id>::new();
+    let mut states = HashMap::<VirtualId, PendingState, DefaultHashBuilder>::new();
+    let mut awoken = VecDeque::<VirtualId>::new();
     let mut new_awoken = VecDeque::new();
 
     'outer: loop {
@@ -159,12 +166,12 @@ fn handle_scheme<'a>(
     req: Request,
     socket: &'a Socket,
     scheme: &mut ProcScheme<'a>,
-    states: &mut HashMap<Id, PendingState>,
-    awoken: &mut VecDeque<Id>,
+    states: &mut HashMap<VirtualId, PendingState>,
+    awoken: &mut VecDeque<VirtualId>,
 ) -> Poll<Response> {
     match req.kind() {
         RequestKind::Call(req) => {
-            let req_id = req.request_id();
+            let req_id = VirtualId::KernelId(req.request_id());
             let op = match req.op() {
                 Ok(op) => op,
                 Err(req) => return Response::ready_err(ENOSYS, req),
@@ -279,10 +286,10 @@ struct Process {
 
     status: ProcessStatus,
 
-    awaiting_threads_term: Vec<Id>,
+    awaiting_threads_term: Vec<VirtualId>,
 
     waitpid: BTreeMap<WaitpidKey, (ProcessId, WaitpidStatus)>,
-    waitpid_waiting: VecDeque<Id>,
+    waitpid_waiting: VecDeque<VirtualId>,
 
     sig_pctl: Option<Page<SigProcControl>>,
     rtqs: Vec<VecDeque<RtSigInfo>>,
@@ -731,9 +738,9 @@ impl<'a> ProcScheme<'a> {
     }
     pub fn on_call(
         &mut self,
-        state: VacantEntry<Id, PendingState, DefaultHashBuilder>,
+        state: VacantEntry<VirtualId, PendingState, DefaultHashBuilder>,
         mut op: OpCall,
-        awoken: &mut VecDeque<Id>,
+        awoken: &mut VecDeque<VirtualId>,
     ) -> Poll<Response> {
         let id = op.fd;
         let (payload, metadata) = op.payload_and_metadata();
@@ -963,8 +970,8 @@ impl<'a> ProcScheme<'a> {
         &mut self,
         pid: ProcessId,
         status: i32,
-        mut state: VacantEntry<Id, PendingState, DefaultHashBuilder>,
-        awoken: &mut VecDeque<Id>,
+        mut state: VacantEntry<VirtualId, PendingState, DefaultHashBuilder>,
+        awoken: &mut VecDeque<VirtualId>,
         tag: Tag,
     ) -> Poll<Response> {
         let Some(proc_rc) = self.processes.get(&pid) else {
@@ -1010,7 +1017,7 @@ impl<'a> ProcScheme<'a> {
         this_pid: ProcessId,
         target: WaitpidTarget,
         flags: WaitFlags,
-        req_id: Id,
+        req_id: VirtualId,
     ) -> Poll<Result<(usize, i32)>> {
         if matches!(
             target,
@@ -1276,8 +1283,8 @@ impl<'a> ProcScheme<'a> {
     }
     pub fn work_on(
         &mut self,
-        mut state_entry: OccupiedEntry<Id, PendingState, DefaultHashBuilder>,
-        awoken: &mut VecDeque<Id>,
+        mut state_entry: OccupiedEntry<VirtualId, PendingState, DefaultHashBuilder>,
+        awoken: &mut VecDeque<VirtualId>,
     ) -> Poll<Response> {
         let req_id = *state_entry.key();
         let mut state = state_entry.get_mut();
@@ -1365,7 +1372,7 @@ impl<'a> ProcScheme<'a> {
         target: ProcKillTarget,
         signal: u8,
         mode: KillMode,
-        awoken: &mut VecDeque<Id>,
+        awoken: &mut VecDeque<VirtualId>,
     ) -> Result<()> {
         log::trace!("KILL(from {caller_pid:?}) TARGET {target:?} {signal} {mode:?}");
         let mut num_succeeded = 0;
@@ -1426,7 +1433,7 @@ impl<'a> ProcScheme<'a> {
         killed_self: &mut bool,
         mode: KillMode,
         is_sigchld_to_parent: bool,
-        awoken: &mut VecDeque<Id>,
+        awoken: &mut VecDeque<VirtualId>,
     ) -> Result<()> {
         let sig = usize::from(signal);
         debug_assert!(sig <= 64);

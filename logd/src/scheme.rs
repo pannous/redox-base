@@ -1,33 +1,56 @@
 use std::collections::BTreeMap;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::mem;
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
 
-use redox_scheme::SchemeMut;
+use redox_scheme::scheme::SchemeSync;
+use redox_scheme::{CallerCtx, OpenResult};
 use syscall::error::*;
+use syscall::schemev2::NewFdFlags;
 
-pub struct LogHandle {
-    context: Box<str>,
-    bufs: BTreeMap<usize, Vec<u8>>,
+pub enum LogHandle {
+    Log {
+        context: Box<str>,
+        bufs: BTreeMap<usize, Vec<u8>>,
+    },
+    AddSink,
 }
 
 pub struct LogScheme {
     next_id: usize,
-    output_tx: Sender<Vec<u8>>,
+    output_tx: Sender<OutputCmd>,
     handles: BTreeMap<usize, LogHandle>,
-    pub current_pid: usize,
+}
+
+enum OutputCmd {
+    Log(Vec<u8>),
+    AddSink(PathBuf),
 }
 
 impl LogScheme {
     pub fn new(mut files: Vec<File>) -> Self {
-        let (output_tx, output_rx) = mpsc::channel::<Vec<u8>>();
+        let (output_tx, output_rx) = mpsc::channel::<OutputCmd>();
 
         std::thread::spawn(move || {
-            for line in output_rx {
-                for file in &mut files {
-                    let _ = file.write(&line);
-                    let _ = file.flush();
+            for cmd in output_rx {
+                match cmd {
+                    OutputCmd::Log(line) => {
+                        for file in &mut files {
+                            let _ = file.write(&line);
+                            let _ = file.flush();
+                        }
+                    }
+                    OutputCmd::AddSink(sink_path) => {
+                        // FIXME backfill log messages that were sent to other log sinks
+                        match OpenOptions::new().write(true).open(&sink_path) {
+                            Ok(file) => files.push(file),
+                            Err(err) => {
+                                eprintln!("logd: failed to open {:?}: {:?}", sink_path, err)
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -36,28 +59,41 @@ impl LogScheme {
             next_id: 0,
             output_tx,
             handles: BTreeMap::new(),
-            current_pid: 0,
         }
     }
 }
 
-impl SchemeMut for LogScheme {
-    fn open(&mut self, path: &str, _flags: usize, _uid: u32, _gid: u32) -> Result<usize> {
+impl SchemeSync for LogScheme {
+    fn open(&mut self, path: &str, _flags: usize, _ctx: &CallerCtx) -> Result<OpenResult> {
         let id = self.next_id;
         self.next_id += 1;
 
-        self.handles.insert(
-            id,
-            LogHandle {
-                context: path.to_string().into_boxed_str(),
-                bufs: BTreeMap::new(),
-            },
-        );
+        if path == "add_sink" {
+            self.handles.insert(id, LogHandle::AddSink);
+        } else {
+            self.handles.insert(
+                id,
+                LogHandle::Log {
+                    context: path.to_string().into_boxed_str(),
+                    bufs: BTreeMap::new(),
+                },
+            );
+        }
 
-        Ok(id)
+        Ok(OpenResult::ThisScheme {
+            number: id,
+            flags: NewFdFlags::empty(),
+        })
     }
 
-    fn read(&mut self, id: usize, _buf: &mut [u8], _offset: u64, _flags: u32) -> Result<usize> {
+    fn read(
+        &mut self,
+        id: usize,
+        _buf: &mut [u8],
+        _offset: u64,
+        _flags: u32,
+        _ctx: &CallerCtx,
+    ) -> Result<usize> {
         let _handle = self.handles.get(&id).ok_or(Error::new(EBADF))?;
 
         // TODO
@@ -65,27 +101,46 @@ impl SchemeMut for LogScheme {
         Ok(0)
     }
 
-    fn write(&mut self, id: usize, buf: &[u8], _offset: u64, _flags: u32) -> Result<usize> {
-        let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
+    fn write(
+        &mut self,
+        id: usize,
+        buf: &[u8],
+        _offset: u64,
+        _flags: u32,
+        ctx: &CallerCtx,
+    ) -> Result<usize> {
+        let (context, bufs) = match self.handles.get_mut(&id).ok_or(Error::new(EBADF))? {
+            LogHandle::Log { context, bufs } => (context, bufs),
+            LogHandle::AddSink => {
+                // FIXME maybe check if root
 
-        let handle_buf = handle
-            .bufs
-            .entry(self.current_pid)
-            .or_insert_with(|| Vec::new());
+                let sink_path = PathBuf::from(
+                    String::from_utf8(buf.to_owned()).map_err(|_| Error::new(EINVAL))?,
+                );
+
+                self.output_tx.send(OutputCmd::AddSink(sink_path)).unwrap();
+
+                return Ok(buf.len());
+            }
+        };
+
+        let handle_buf = bufs.entry(ctx.pid).or_insert_with(|| Vec::new());
 
         let mut i = 0;
         while i < buf.len() {
             let b = buf[i];
 
-            if handle_buf.is_empty() && !handle.context.is_empty() {
-                handle_buf.extend_from_slice(handle.context.as_bytes());
+            if handle_buf.is_empty() && !context.is_empty() {
+                handle_buf.extend_from_slice(context.as_bytes());
                 handle_buf.extend_from_slice(b": ");
             }
 
             handle_buf.push(b);
 
             if b == b'\n' {
-                self.output_tx.send(mem::take(handle_buf)).unwrap();
+                self.output_tx
+                    .send(OutputCmd::Log(mem::take(handle_buf)))
+                    .unwrap();
             }
 
             i += 1;
@@ -94,16 +149,16 @@ impl SchemeMut for LogScheme {
         Ok(i)
     }
 
-    fn fcntl(&mut self, id: usize, _cmd: usize, _arg: usize) -> Result<usize> {
+    fn fcntl(&mut self, id: usize, _cmd: usize, _arg: usize, _ctx: &CallerCtx) -> Result<usize> {
         let _handle = self.handles.get(&id).ok_or(Error::new(EBADF))?;
 
         Ok(0)
     }
 
-    fn fpath(&mut self, id: usize, buf: &mut [u8]) -> Result<usize> {
+    fn fpath(&mut self, id: usize, buf: &mut [u8], _ctx: &CallerCtx) -> Result<usize> {
         let handle = self.handles.get(&id).ok_or(Error::new(EBADF))?;
 
-        let scheme_path = b"log:";
+        let scheme_path = b"/scheme/log/";
 
         let mut i = 0;
         while i < buf.len() && i < scheme_path.len() {
@@ -111,10 +166,13 @@ impl SchemeMut for LogScheme {
             i += 1;
         }
 
+        let path_bytes = match handle {
+            LogHandle::Log { context, .. } => context.as_bytes(),
+            LogHandle::AddSink => b"add_sink",
+        };
         let mut j = 0;
-        let context_bytes = handle.context.as_bytes();
-        while i < buf.len() && j < context_bytes.len() {
-            buf[i] = context_bytes[j];
+        while i < buf.len() && j < path_bytes.len() {
+            buf[i] = path_bytes[j];
             i += 1;
             j += 1;
         }
@@ -122,19 +180,17 @@ impl SchemeMut for LogScheme {
         Ok(i)
     }
 
-    fn fsync(&mut self, id: usize) -> Result<usize> {
+    fn fsync(&mut self, id: usize, _ctx: &CallerCtx) -> Result<()> {
         let _handle = self.handles.get(&id).ok_or(Error::new(EBADF))?;
 
         //TODO: flush remaining data?
 
-        Ok(0)
+        Ok(())
     }
+}
 
-    fn close(&mut self, id: usize) -> Result<usize> {
-        self.handles.remove(&id).ok_or(Error::new(EBADF))?;
-
-        //TODO: flush remaining data?
-
-        Ok(0)
+impl LogScheme {
+    pub fn on_close(&mut self, id: usize) {
+        self.handles.remove(&id);
     }
 }

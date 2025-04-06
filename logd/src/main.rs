@@ -1,4 +1,4 @@
-use redox_scheme::{RequestKind, SignalBehavior, Socket, V2};
+use redox_scheme::{RequestKind, SignalBehavior, Socket};
 use std::env;
 use std::fs::OpenOptions;
 use std::process;
@@ -17,9 +17,7 @@ fn daemon(daemon: redox_daemon::Daemon) -> ! {
         }
     }
 
-    let socket = Socket::<V2>::create("log").expect("logd: failed to create log scheme");
-
-    libredox::call::setrens(0, 0).expect("logd: failed to enter null namespace");
+    let socket = Socket::create("log").expect("logd: failed to create log scheme");
 
     eprintln!("logd: ready for logging on log:");
 
@@ -31,13 +29,16 @@ fn daemon(daemon: redox_daemon::Daemon) -> ! {
         .next_request(SignalBehavior::Restart)
         .expect("logd: failed to read events from log scheme")
     {
-        scheme.current_pid = request.context_id();
-
-        let RequestKind::Call(request) = request.kind() else {
-            continue;
+        let request = match request.kind() {
+            RequestKind::Call(call) => call,
+            RequestKind::OnClose { id } => {
+                scheme.on_close(id);
+                continue;
+            }
+            _ => continue,
         };
 
-        let response = request.handle_scheme_mut(&mut scheme);
+        let response = request.handle_sync(&mut scheme);
         socket
             .write_responses(&[response], SignalBehavior::Restart)
             .expect("logd: failed to write responses to log scheme");

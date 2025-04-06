@@ -43,6 +43,7 @@ impl LogScheme {
                         }
                     }
                     OutputCmd::AddSink(sink_path) => {
+                        // FIXME backfill log messages that were sent to other log sinks
                         match OpenOptions::new().write(true).open(&sink_path) {
                             Ok(file) => files.push(file),
                             Err(err) => {

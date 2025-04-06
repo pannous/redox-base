@@ -4,8 +4,10 @@ use std::io::Write;
 use std::mem;
 use std::sync::mpsc::{self, Sender};
 
-use redox_scheme::SchemeMut;
+use redox_scheme::scheme::SchemeSync;
+use redox_scheme::{CallerCtx, OpenResult};
 use syscall::error::*;
+use syscall::schemev2::NewFdFlags;
 
 pub struct LogHandle {
     context: Box<str>,
@@ -16,7 +18,6 @@ pub struct LogScheme {
     next_id: usize,
     output_tx: Sender<Vec<u8>>,
     handles: BTreeMap<usize, LogHandle>,
-    pub current_pid: usize,
 }
 
 impl LogScheme {
@@ -36,13 +37,12 @@ impl LogScheme {
             next_id: 0,
             output_tx,
             handles: BTreeMap::new(),
-            current_pid: 0,
         }
     }
 }
 
-impl SchemeMut for LogScheme {
-    fn open(&mut self, path: &str, _flags: usize, _uid: u32, _gid: u32) -> Result<usize> {
+impl SchemeSync for LogScheme {
+    fn open(&mut self, path: &str, _flags: usize, _ctx: &CallerCtx) -> Result<OpenResult> {
         let id = self.next_id;
         self.next_id += 1;
 
@@ -54,10 +54,20 @@ impl SchemeMut for LogScheme {
             },
         );
 
-        Ok(id)
+        Ok(OpenResult::ThisScheme {
+            number: id,
+            flags: NewFdFlags::empty(),
+        })
     }
 
-    fn read(&mut self, id: usize, _buf: &mut [u8], _offset: u64, _flags: u32) -> Result<usize> {
+    fn read(
+        &mut self,
+        id: usize,
+        _buf: &mut [u8],
+        _offset: u64,
+        _flags: u32,
+        _ctx: &CallerCtx,
+    ) -> Result<usize> {
         let _handle = self.handles.get(&id).ok_or(Error::new(EBADF))?;
 
         // TODO
@@ -65,13 +75,17 @@ impl SchemeMut for LogScheme {
         Ok(0)
     }
 
-    fn write(&mut self, id: usize, buf: &[u8], _offset: u64, _flags: u32) -> Result<usize> {
+    fn write(
+        &mut self,
+        id: usize,
+        buf: &[u8],
+        _offset: u64,
+        _flags: u32,
+        ctx: &CallerCtx,
+    ) -> Result<usize> {
         let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
 
-        let handle_buf = handle
-            .bufs
-            .entry(self.current_pid)
-            .or_insert_with(|| Vec::new());
+        let handle_buf = handle.bufs.entry(ctx.pid).or_insert_with(|| Vec::new());
 
         let mut i = 0;
         while i < buf.len() {
@@ -94,13 +108,13 @@ impl SchemeMut for LogScheme {
         Ok(i)
     }
 
-    fn fcntl(&mut self, id: usize, _cmd: usize, _arg: usize) -> Result<usize> {
+    fn fcntl(&mut self, id: usize, _cmd: usize, _arg: usize, _ctx: &CallerCtx) -> Result<usize> {
         let _handle = self.handles.get(&id).ok_or(Error::new(EBADF))?;
 
         Ok(0)
     }
 
-    fn fpath(&mut self, id: usize, buf: &mut [u8]) -> Result<usize> {
+    fn fpath(&mut self, id: usize, buf: &mut [u8], _ctx: &CallerCtx) -> Result<usize> {
         let handle = self.handles.get(&id).ok_or(Error::new(EBADF))?;
 
         let scheme_path = b"log:";
@@ -122,19 +136,17 @@ impl SchemeMut for LogScheme {
         Ok(i)
     }
 
-    fn fsync(&mut self, id: usize) -> Result<usize> {
+    fn fsync(&mut self, id: usize, _ctx: &CallerCtx) -> Result<()> {
         let _handle = self.handles.get(&id).ok_or(Error::new(EBADF))?;
 
         //TODO: flush remaining data?
 
-        Ok(0)
+        Ok(())
     }
+}
 
-    fn close(&mut self, id: usize) -> Result<usize> {
-        self.handles.remove(&id).ok_or(Error::new(EBADF))?;
-
-        //TODO: flush remaining data?
-
-        Ok(0)
+impl LogScheme {
+    pub fn on_close(&mut self, id: usize) {
+        self.handles.remove(&id);
     }
 }

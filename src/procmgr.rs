@@ -147,6 +147,10 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
                 // spurious event
                 continue;
             }
+
+            if let Err(err) = scheme.queue.unsubscribe(event.data, event.data) {
+                log::error!("failed to unsubscribe from fd {}", event.data);
+            }
             scheme.thread_lookup.remove(&event.data);
             proc.threads.retain(|rc| !Rc::ptr_eq(rc, &thread_rc));
 
@@ -169,7 +173,7 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
                 };
             }
         } else {
-            log::warn!("TODO: UNKNOWN EVENT");
+            log::warn!("TODO: UNKNOWN EVENT {event:?}");
         }
     }
 
@@ -452,6 +456,9 @@ impl RawEventQueue {
         )?;
         Ok(())
     }
+    pub fn unsubscribe(&self, fd: usize, ident: usize) -> Result<()> {
+        self.subscribe(fd, ident, EventFlags::empty())
+    }
     pub fn next_event(&self) -> Result<Event> {
         let mut event = Event::default();
         let read = syscall::read(*self.0, &mut event)?;
@@ -653,7 +660,7 @@ impl<'a> ProcScheme<'a> {
         )?);
 
         self.queue
-            .subscribe(*ctxt_fd, *status_hndl, EventFlags::EVENT_READ)
+            .subscribe(*ctxt_fd, *ctxt_fd, EventFlags::EVENT_READ)
             .expect("TODO");
 
         let ident = *ctxt_fd;
@@ -1464,7 +1471,7 @@ impl<'a> ProcScheme<'a> {
         mode: KillMode,
         awoken: &mut VecDeque<VirtualId>,
     ) -> Result<()> {
-        log::trace!("KILL(from {caller_pid:?}) TARGET {target:?} {signal} {mode:?}");
+        log::debug!("KILL(from {caller_pid:?}) TARGET {target:?} {signal} {mode:?}");
         let mut num_succeeded = 0;
 
         let mut killed_self = false; // TODO
@@ -1492,6 +1499,7 @@ impl<'a> ProcScheme<'a> {
                     .pgid,
             ),
         };
+        log::debug!("match group {match_grp:?}");
 
         for (pid, proc_rc) in self.processes.iter() {
             if match_grp.map_or(false, |g| proc_rc.borrow().pgid != g) {
@@ -1525,6 +1533,7 @@ impl<'a> ProcScheme<'a> {
         is_sigchld_to_parent: bool,
         awoken: &mut VecDeque<VirtualId>,
     ) -> Result<()> {
+        log::debug!("SEND_SIG(from {caller_pid:?}) TARGET {target:?} {signal} {mode:?}");
         let sig = usize::from(signal);
         debug_assert!(sig <= 64);
         let sig_group = (sig - 1) / 32;
@@ -1570,7 +1579,7 @@ impl<'a> ProcScheme<'a> {
             let target_proc = &mut *target_proc;
 
             let Some(ref sig_pctl) = target_proc.sig_pctl else {
-                log::trace!("No pctl {caller_pid:?}");
+                log::debug!("No pctl {caller_pid:?} => {target_pid:?}");
                 return SendResult::Invalid;
             };
 
@@ -1664,7 +1673,7 @@ impl<'a> ProcScheme<'a> {
                     KillTarget::Thread(ref thread_rc) => {
                         let thread = thread_rc.borrow();
                         let Some(ref tctl) = thread.sig_ctrl else {
-                            log::trace!("No tctl");
+                            log::debug!("No tctl");
                             return SendResult::Invalid;
                         };
 
@@ -1686,7 +1695,7 @@ impl<'a> ProcScheme<'a> {
                         match mode {
                             KillMode::Queued(arg) => {
                                 if sig_group != 1 || sig_idx < 32 || sig_idx >= 64 {
-                                    log::trace!("Out of range");
+                                    log::debug!("Out of range");
                                     return SendResult::Invalid;
                                 }
                                 let rtidx = sig_idx - 32;
@@ -1717,7 +1726,7 @@ impl<'a> ProcScheme<'a> {
                                 }
 
                                 if sig_group != 0 {
-                                    log::trace!("Invalid sig group");
+                                    log::debug!("Invalid sig group");
                                     return SendResult::Invalid;
                                 }
                                 sig_pctl.sender_infos[sig_idx]
@@ -1761,7 +1770,7 @@ impl<'a> ProcScheme<'a> {
             SendResult::Succeeded => (),
             SendResult::FullQ => return Err(Error::new(EAGAIN)),
             SendResult::Invalid => {
-                log::debug!("Invalid signal configuration");
+                log::debug!("Invalid signal configuration for {target_pid:?}");
                 return Err(Error::new(EINVAL));
             }
             SendResult::SucceededSigchld {
@@ -1790,16 +1799,17 @@ impl<'a> ProcScheme<'a> {
                     awoken.extend(parent.waitpid_waiting.drain(..));
                 }
                 // TODO: Just ignore EINVAL (missing signal config)
-                let _ = self.on_send_sig(
-                    // TODO?
-                    ProcessId(1),
-                    KillTarget::Proc(ppid),
-                    SIGCHLD as u8,
-                    killed_self,
-                    KillMode::Idempotent,
-                    true,
-                    awoken,
-                );
+                if ppid != INIT_PID {
+                    let _ = self.on_send_sig(
+                        INIT_PID, // caller, TODO?
+                        KillTarget::Proc(ppid),
+                        SIGCHLD as u8,
+                        killed_self,
+                        KillMode::Idempotent,
+                        true,
+                        awoken,
+                    );
+                }
             }
             SendResult::SucceededSigcont { ppid, pgid } => {
                 {
@@ -1819,15 +1829,17 @@ impl<'a> ProcScheme<'a> {
                 }
                 // POSIX XSI allows but does not require SIGCONT to send signals to the parent.
                 // TODO: Just ignore EINVAL (missing signal config)
-                let _ = self.on_send_sig(
-                    ProcessId(1),
-                    KillTarget::Proc(ppid),
-                    SIGCHLD as u8,
-                    killed_self,
-                    KillMode::Idempotent,
-                    true,
-                    awoken,
-                );
+                if ppid != INIT_PID {
+                    let _ = self.on_send_sig(
+                        INIT_PID, // caller, TODO?
+                        KillTarget::Proc(ppid),
+                        SIGCHLD as u8,
+                        killed_self,
+                        KillMode::Idempotent,
+                        true,
+                        awoken,
+                    );
+                }
             }
         }
 

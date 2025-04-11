@@ -1103,27 +1103,25 @@ impl<'a> ProcScheme<'a> {
                 None
             }
         };
-        let grim_reaper = |w_pid: ProcessId, status: WaitpidStatus| {
-            match status {
-                WaitpidStatus::Continued => {
-                    // TODO: Handle None, i.e. restart everything until a match is found
-                    if flags.contains(WaitFlags::WCONTINUED) {
-                        Ready((w_pid.0, 0xffff))
-                    } else {
-                        Pending
-                    }
-                }
-                WaitpidStatus::Stopped { signal } => {
-                    if flags.contains(WaitFlags::WUNTRACED) {
-                        Ready((w_pid.0, 0x7f | (i32::from(signal.get()) << 8)))
-                    } else {
-                        Pending
-                    }
-                }
-                WaitpidStatus::Terminated { signal, status } => {
-                    Ready((w_pid.0, signal.map_or(0, NonZeroU8::get).into()))
+        let grim_reaper = |w_pid: ProcessId, status: WaitpidStatus| match status {
+            WaitpidStatus::Continued => {
+                if flags.contains(WaitFlags::WCONTINUED) {
+                    Ready((w_pid.0, 0xffff))
+                } else {
+                    Pending
                 }
             }
+            WaitpidStatus::Stopped { signal } => {
+                if flags.contains(WaitFlags::WUNTRACED) {
+                    Ready((w_pid.0, 0x7f | (i32::from(signal.get()) << 8)))
+                } else {
+                    Pending
+                }
+            }
+            WaitpidStatus::Terminated { signal, status } => Ready((
+                w_pid.0,
+                i32::from(signal.map_or(0, NonZeroU8::get)) | (i32::from(status) << 8),
+            )),
         };
 
         match target {

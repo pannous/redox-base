@@ -19,7 +19,7 @@ use hashbrown::hash_map::{Entry, OccupiedEntry, VacantEntry};
 use hashbrown::{DefaultHashBuilder, HashMap, HashSet};
 
 use redox_rt::proc::FdGuard;
-use redox_rt::protocol::{ProcCall, ProcKillTarget, ProcMeta, ThreadCall, WaitFlags};
+use redox_rt::protocol::{ProcCall, ProcKillTarget, ProcMeta, RtSigInfo, ThreadCall, WaitFlags};
 use redox_scheme::scheme::{IntoTag, Op, OpCall};
 use redox_scheme::{
     CallerCtx, Id, OpenResult, Request, RequestKind, Response, SendFdRequest, SignalBehavior,
@@ -29,10 +29,10 @@ use slab::Slab;
 use syscall::schemev2::NewFdFlags;
 use syscall::{
     sig_bit, ContextStatus, ContextVerb, Error, Event, EventFlags, FobtainFdFlags, MapFlags,
-    ProcSchemeAttrs, Result, RtSigInfo, SenderInfo, SetSighandlerData, SigProcControl, Sigcontrol,
-    EAGAIN, EBADF, EBADFD, ECHILD, EEXIST, EINTR, EINVAL, EIO, ENOENT, ENOSYS, EOPNOTSUPP, EPERM,
-    ERESTART, ESRCH, EWOULDBLOCK, O_CLOEXEC, O_CREAT, PAGE_SIZE, SIGCHLD, SIGCONT, SIGKILL,
-    SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU,
+    ProcSchemeAttrs, Result, SenderInfo, SetSighandlerData, SigProcControl, Sigcontrol, EAGAIN,
+    EBADF, EBADFD, ECHILD, EEXIST, EINTR, EINVAL, EIO, ENOENT, ENOSYS, EOPNOTSUPP, EPERM, ERESTART,
+    ESRCH, EWOULDBLOCK, O_CLOEXEC, O_CREAT, PAGE_SIZE, SIGCHLD, SIGCONT, SIGKILL, SIGSTOP, SIGTSTP,
+    SIGTTIN, SIGTTOU,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -883,12 +883,12 @@ impl<'a> ProcScheme<'a> {
                         let mode = match verb {
                             ProcCall::Kill => KillMode::Idempotent,
                             ProcCall::Sigq => KillMode::Queued({
-                                let mut buf = RtSigInfo::default();
-                                if payload.len() != buf.len() {
+                                let mut buf = [0_u8; size_of::<RtSigInfo>()];
+                                if payload.len() != size_of::<RtSigInfo>() {
                                     return Response::ready_err(EINVAL, op);
                                 }
                                 buf.copy_from_slice(payload);
-                                buf
+                                *plain::from_bytes(&buf).unwrap()
                             }),
                             _ => unreachable!(),
                         };
@@ -902,6 +902,10 @@ impl<'a> ProcScheme<'a> {
                     ProcCall::SyncSigPctl => {
                         Ready(Response::new(self.on_sync_sigpctl(fd_pid).map(|()| 0), op))
                     }
+                    ProcCall::Sigdeq => Ready(Response::new(
+                        self.on_sigdeq(fd_pid, payload).map(|()| 0),
+                        op,
+                    )),
                 }
             }
         }
@@ -1895,6 +1899,42 @@ impl<'a> ProcScheme<'a> {
             .replace(Page::map(&sigcontrol_fd, PAGE_SIZE, pctl_off)?);
         Ok(())
     }
+    fn on_sigdeq(&mut self, pid: ProcessId, payload: &mut [u8]) -> Result<()> {
+        let sig_idx = {
+            let bytes = <[u8; 4]>::try_from(payload.get(..4).ok_or(Error::new(EINVAL))?).unwrap();
+            u32::from_ne_bytes(bytes)
+        };
+        log::trace!("SIGDEQ {pid:?} idx {sig_idx}");
+        let mut dst = payload
+            .get_mut(..size_of::<RtSigInfo>())
+            .ok_or(Error::new(EINVAL))?;
+        if sig_idx >= 32 {
+            return Err(Error::new(EINVAL));
+        }
+        let mut proc = self
+            .processes
+            .get_mut(&pid)
+            .ok_or(Error::new(ESRCH))?
+            .borrow_mut();
+        let proc = &mut *proc;
+
+        let pctl = proc.sig_pctl.as_ref().ok_or(Error::new(EBADF))?;
+
+        let q = proc
+            .rtqs
+            .get_mut(sig_idx as usize)
+            .ok_or(Error::new(EAGAIN))?;
+        let Some(front) = q.pop_front() else {
+            return Err(Error::new(EAGAIN));
+        };
+
+        if q.is_empty() {
+            pctl.pending
+                .fetch_and(!(1 << (32 + sig_idx as usize)), Ordering::Relaxed);
+        }
+        dst.copy_from_slice(unsafe { plain::as_bytes(&front) });
+        Ok(())
+    }
 }
 #[derive(Clone, Copy, Debug)]
 pub enum KillMode {
@@ -1906,26 +1946,3 @@ pub enum KillTarget {
     Proc(ProcessId),
     Thread(Rc<RefCell<Thread>>),
 }
-/*
-pub fn sigdequeue(out: &mut [u8], sig_idx: u32) -> Result<()> {
-    let Some((_tctl, sig_pctl, st)) = current.sigcontrol() else {
-        return Err(Error::new(ESRCH));
-    };
-    if sig_idx >= 32 {
-        return Err(Error::new(EINVAL));
-    }
-    let q = st
-        .rtqs
-        .get_mut(sig_idx as usize)
-        .ok_or(Error::new(EAGAIN))?;
-    let Some(front) = q.pop_front() else {
-        return Err(Error::new(EAGAIN));
-    };
-    if q.is_empty() {
-        sig_pctl.pending
-            .fetch_and(!(1 << (32 + sig_idx as usize)), Ordering::Relaxed);
-    }
-    out.copy_exactly(&front)?;
-    Ok(())
-}
-*/

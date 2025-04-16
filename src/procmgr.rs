@@ -835,7 +835,7 @@ impl<'a> ProcScheme<'a> {
                     )),
                     ProcCall::Exit => self.on_exit_start(
                         fd_pid,
-                        metadata[1] as i32,
+                        metadata[1] as u16,
                         state,
                         awoken,
                         Some(op.into_tag()),
@@ -1058,7 +1058,7 @@ impl<'a> ProcScheme<'a> {
     fn on_exit_start(
         &mut self,
         pid: ProcessId,
-        status: i32,
+        status: u16,
         mut state: VacantEntry<VirtualId, PendingState, DefaultHashBuilder>,
         awoken: &mut VecDeque<VirtualId>,
         tag: Option<Tag>,
@@ -1091,11 +1091,29 @@ impl<'a> ProcScheme<'a> {
                 }
             }
         }
-        // TODO: status/signal
-        process.status = ProcessStatus::Exiting {
-            status: status as u8,
-            signal: None,
+
+        // Forbid the caller from giving statuses corresponding to e.g. WIFCONTINUED which exit()
+        // obviously can never be.
+
+        log::debug!("Killed with raw status {status:?}");
+
+        // TODO: Are WIFEXITED and WIFSIGNALED mutually exclusive?
+        let (status, signal) = if status & 0xff == status {
+            (status as u8, None)
+        } else {
+            // TODO: Only allow valid and catchable signal numbers.
+            let sig = (status >> 8) as u8;
+            if !matches!(sig, 1..=64) {
+                return if let Some(tag) = tag {
+                    Response::ready_err(EINVAL, tag)
+                } else {
+                    Pending
+                };
+            }
+            (0, NonZeroU8::new(sig))
         };
+
+        process.status = ProcessStatus::Exiting { status, signal };
         if !process.threads.is_empty() {
             // terminate all threads (possibly including the caller, resulting in EINTR and a
             // to-be-ignored cancellation request to this scheme).

@@ -1641,7 +1641,7 @@ impl<'a> ProcScheme<'a> {
         }
 
         let sig_group = (sig - 1) / 32;
-        let sig_idx = sig - 1;
+        let sig_idx = (sig - 1) % 32;
 
         let target_pid = match target {
             KillTarget::Proc(pid) => pid,
@@ -1838,11 +1838,11 @@ impl<'a> ProcScheme<'a> {
                     KillTarget::Proc(proc) => {
                         match mode {
                             KillMode::Queued(arg) => {
-                                if sig_group != 1 || sig_idx < 32 || sig_idx >= 64 {
+                                if sig_group != 1 {
                                     log::trace!("Out of range");
                                     return SendResult::Invalid;
                                 }
-                                let rtidx = sig_idx - 32;
+                                let rtidx = sig_idx;
                                 //log::trace!("QUEUEING {arg:?} RTIDX {rtidx}");
                                 if rtidx >= target_proc.rtqs.len() {
                                     target_proc.rtqs.resize_with(rtidx + 1, VecDeque::new);
@@ -1918,7 +1918,7 @@ impl<'a> ProcScheme<'a> {
             SendResult::FullQ => return Err(Error::new(EAGAIN)),
             SendResult::Invalid => {
                 log::trace!("Invalid signal configuration for {target_pid:?}");
-                return Err(Error::new(EINVAL));
+                return Err(Error::new(ESRCH));
             }
             SendResult::SucceededSigchld {
                 ppid,

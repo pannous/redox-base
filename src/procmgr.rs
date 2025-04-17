@@ -1822,11 +1822,10 @@ impl<'a> ProcScheme<'a> {
                         };
 
                         tctl.sender_infos[sig_idx].store(sender.raw(), Ordering::Relaxed);
+                        let bit = 1 << sig_idx;
 
-                        let _was_new =
-                            tctl.word[sig_group].fetch_or(sig_bit(sig), Ordering::Release);
-                        if (tctl.word[sig_group].load(Ordering::Relaxed) >> 32) & sig_bit(sig) != 0
-                        {
+                        let _was_new = tctl.word[sig_group].fetch_or(bit, Ordering::Release);
+                        if (tctl.word[sig_group].load(Ordering::Relaxed) >> 32) & bit != 0 {
                             *killed_self |= is_self;
                             let _ = syscall::write(
                                 *thread.status_hndl,

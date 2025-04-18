@@ -199,6 +199,7 @@ fn handle_scheme<'a>(
 ) -> Poll<Response> {
     match req.kind() {
         RequestKind::Call(req) => {
+            let caller = req.caller();
             let req_id = VirtualId::KernelId(req.request_id());
             let op = match req.op() {
                 Ok(op) => op,
@@ -206,11 +207,14 @@ fn handle_scheme<'a>(
             };
             match op {
                 Op::Open(op) => Ready(Response::open_dup_like(
-                    scheme.on_open(op.path(), op.flags),
+                    scheme.on_open(op.path(), op.flags, &caller),
                     op,
                 )),
                 Op::Dup(op) => Ready(Response::open_dup_like(scheme.on_dup(op.fd, op.buf()), op)),
-                Op::Read(mut op) => Ready(Response::new(scheme.on_read(op.fd, op.buf()), op)),
+                Op::Read(mut op) => Ready(Response::new(
+                    scheme.on_read(op.fd, op.offset, op.buf()),
+                    op,
+                )),
                 Op::Call(op) => scheme.on_call(
                     {
                         // TODO: cleanup
@@ -224,9 +228,25 @@ fn handle_scheme<'a>(
                     op,
                     awoken,
                 ),
+                Op::Fsize { req, fd } => {
+                    if let Handle::Ps(ref b) = &scheme.handles[fd] {
+                        Response::ready_ok(b.len(), req)
+                    } else {
+                        Response::ready_err(EOPNOTSUPP, req)
+                    }
+                }
+                Op::Fstat(mut op) => {
+                    if let Handle::Ps(ref b) = &scheme.handles[op.fd] {
+                        op.buf().st_size = b.len() as _;
+                        op.buf().st_mode = syscall::MODE_FILE | 0o444;
+                        Response::ready_ok(0, op)
+                    } else {
+                        Response::ready_err(EOPNOTSUPP, op)
+                    }
+                }
                 _ => {
                     log::trace!("UNKNOWN: {op:?}");
-                    Ready(Response::new(Err(Error::new(ENOSYS)), op))
+                    Response::ready_err(ENOSYS, op)
                 }
             }
         }
@@ -446,6 +466,9 @@ enum Handle {
     Init,
     Proc(ProcessId),
     Thread(Rc<RefCell<Thread>>),
+
+    // TODO: stateless API, perhaps using intermediate daemon for providing a file-like API
+    Ps(Vec<u8>),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -709,19 +732,30 @@ impl<'a> ProcScheme<'a> {
         self.thread_lookup.insert(ident, thread_weak);
         Ok(thread)
     }
-    fn on_open(&mut self, path: &str, flags: usize) -> Result<OpenResult> {
-        if path == "init" {
-            if core::mem::replace(&mut self.init_claimed, true) {
-                return Err(Error::new(EEXIST));
+    fn on_open(&mut self, path: &str, flags: usize, ctx: &CallerCtx) -> Result<OpenResult> {
+        let path = path.trim_start_matches('/');
+        Ok(match path {
+            "init" => {
+                if core::mem::replace(&mut self.init_claimed, true) {
+                    return Err(Error::new(EEXIST));
+                }
+                OpenResult::ThisScheme {
+                    number: self.handles.insert(Handle::Init),
+                    flags: NewFdFlags::empty(),
+                }
             }
-            return Ok(OpenResult::ThisScheme {
-                number: self.handles.insert(Handle::Init),
-                flags: NewFdFlags::empty(),
-            });
-        }
-        Err(Error::new(ENOENT))
+            "ps" => {
+                let data = self.ps_data(ctx)?;
+                OpenResult::ThisScheme {
+                    number: self.handles.insert(Handle::Ps(data)),
+                    flags: NewFdFlags::POSITIONED,
+                }
+            }
+
+            _ => return Err(Error::new(ENOENT)),
+        })
     }
-    fn on_read(&mut self, id: usize, buf: &mut [u8]) -> Result<usize> {
+    fn on_read(&mut self, id: usize, offset: u64, buf: &mut [u8]) -> Result<usize> {
         match self.handles[id] {
             Handle::Proc(pid) => {
                 let proc_rc = self.processes.get(&pid).ok_or(Error::new(EBADFD))?;
@@ -743,6 +777,15 @@ impl<'a> ProcScheme<'a> {
                     .and_then(|b| plain::from_mut_bytes(b).ok())
                     .ok_or(Error::new(EINVAL))? = metadata;
                 Ok(size_of::<ProcMeta>())
+            }
+            Handle::Ps(ref src_buf) => {
+                let src_buf = usize::try_from(offset)
+                    .ok()
+                    .and_then(|o| src_buf.get(o..))
+                    .unwrap_or(&[]);
+                let len = src_buf.len().min(buf.len());
+                buf[..len].copy_from_slice(&src_buf[..len]);
+                Ok(len)
             }
             Handle::Init | Handle::Thread(_) => return Err(Error::new(EBADF)),
         }
@@ -790,7 +833,7 @@ impl<'a> ProcScheme<'a> {
                     fd: syscall::dup(*thread.fd, buf)?,
                 })
             }
-            Handle::Init => Err(Error::new(EBADF)),
+            Handle::Init | Handle::Ps(_) => Err(Error::new(EBADF)),
         }
     }
     fn on_call(
@@ -951,6 +994,7 @@ impl<'a> ProcScheme<'a> {
                     )),
                 }
             }
+            Handle::Ps(_) => Response::ready_err(EOPNOTSUPP, op),
         }
     }
     fn on_getpgid(&mut self, caller_pid: ProcessId, target_pid: ProcessId) -> Result<ProcessId> {
@@ -2216,6 +2260,53 @@ impl<'a> ProcScheme<'a> {
             still_true &= parent.pgid == process.pgid || parent.sid != process.sid;
         }
         Some(still_true)
+    }
+    fn ps_data(&mut self, _ctx: &CallerCtx) -> Result<Vec<u8>> {
+        // TODO: enforce uid == 0?
+
+        let mut string = alloc::format!(
+            "{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<8}{:<16}\n",
+            "PID",
+            "PGID",
+            "PPID",
+            "SID",
+            "RUID",
+            "RGID",
+            "RNS",
+            "EUID",
+            "EGID",
+            "ENS",
+            "STATUS",
+            "NAME",
+        );
+        for (pid, process_rc) in self.processes.iter() {
+            let process = process_rc.borrow();
+            let status = match process.status {
+                ProcessStatus::PossiblyRunnable => "R",
+                ProcessStatus::Stopped(_) => "S",
+                ProcessStatus::Exiting { .. } => "E",
+                ProcessStatus::Exited { .. } => "X",
+            };
+            use core::fmt::Write;
+            writeln!(
+                string,
+                "{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<8}{:<16}",
+                pid.0,
+                process.pgid.0,
+                process.ppid.0,
+                process.sid.0,
+                process.ruid,
+                process.rgid,
+                process.rns,
+                process.euid,
+                process.egid,
+                process.ens,
+                status,
+                process.name,
+            )
+            .unwrap();
+        }
+        Ok(string.into_bytes())
     }
 }
 #[derive(Clone, Copy, Debug)]

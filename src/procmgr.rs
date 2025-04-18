@@ -876,7 +876,8 @@ impl<'a> ProcScheme<'a> {
                             ))
                         } else {
                             Ready(Response::new(
-                                self.on_setpgid(fd_pid, target_pid, new_pgid).map(|()| 0),
+                                self.on_setpgid(fd_pid, target_pid, new_pgid, awoken)
+                                    .map(|()| 0),
                                 op,
                             ))
                         }
@@ -889,9 +890,10 @@ impl<'a> ProcScheme<'a> {
                             op,
                         ))
                     }
-                    ProcCall::Setsid => {
-                        Ready(Response::new(self.on_setsid(fd_pid).map(|()| 0), op))
-                    }
+                    ProcCall::Setsid => Ready(Response::new(
+                        self.on_setsid(fd_pid, awoken).map(|()| 0),
+                        op,
+                    )),
                     ProcCall::SetResugid => Ready(Response::new(
                         self.on_setresugid(fd_pid, payload).map(|()| 0),
                         op,
@@ -934,6 +936,7 @@ impl<'a> ProcScheme<'a> {
         }
     }
     fn on_getpgid(&mut self, caller_pid: ProcessId, target_pid: ProcessId) -> Result<ProcessId> {
+        log::trace!("GETPGID from {caller_pid:?} target {target_pid:?}");
         let caller_proc = self
             .processes
             .get(&caller_pid)
@@ -953,7 +956,7 @@ impl<'a> ProcScheme<'a> {
 
         Ok(target_proc.pgid)
     }
-    fn on_setsid(&mut self, caller_pid: ProcessId) -> Result<()> {
+    fn on_setsid(&mut self, caller_pid: ProcessId, awoken: &mut VecDeque<VirtualId>) -> Result<()> {
         // TODO: more efficient?
         // POSIX: any other process's pgid matches the caller pid
         if self
@@ -966,19 +969,28 @@ impl<'a> ProcScheme<'a> {
 
         let caller_proc_rc = self.processes.get(&caller_pid).ok_or(Error::new(ESRCH))?;
         let mut caller_proc = caller_proc_rc.borrow_mut();
+        let mut parent = (caller_proc.ppid != caller_pid)
+            .then(|| {
+                self.processes
+                    .get(&caller_proc.ppid)
+                    .map(|p| p.borrow_mut())
+            })
+            .ok_or(Error::new(ESRCH))?;
 
         // POSIX: already a process group leader
         if caller_proc.pgid == caller_pid {
             return Err(Error::new(EPERM));
         }
 
-        caller_proc.sid = caller_pid;
         Self::set_pgid(
             caller_proc_rc,
             &mut *caller_proc,
+            parent.as_deref_mut(),
             &mut self.groups,
             caller_pid,
+            awoken,
         )?;
+        caller_proc.sid = caller_pid;
 
         // TODO: Remove controlling terminal
         Ok(())
@@ -1008,11 +1020,16 @@ impl<'a> ProcScheme<'a> {
         caller_pid: ProcessId,
         target_pid: ProcessId,
         new_pgid: ProcessId,
+        awoken: &mut VecDeque<VirtualId>,
     ) -> Result<()> {
-        let caller_proc = self.processes.get(&caller_pid).ok_or(Error::new(ESRCH))?;
+        //let caller_proc = self.processes.get(&caller_pid).ok_or(Error::new(ESRCH))?;
 
         let proc_rc = self.processes.get(&target_pid).ok_or(Error::new(ESRCH))?;
         let mut proc = proc_rc.borrow_mut();
+
+        let mut parent = (proc.ppid != target_pid)
+            .then(|| self.processes.get(&proc.ppid).map(|p| p.borrow_mut()))
+            .ok_or(Error::new(ESRCH))?;
 
         if proc.pgid == new_pgid {
             return Ok(());
@@ -1023,19 +1040,35 @@ impl<'a> ProcScheme<'a> {
             return Err(Error::new(EPERM));
         }
 
-        // TODO: other security checks
-        Self::set_pgid(proc_rc, &mut *proc, &mut self.groups, new_pgid)?;
+        // TODO: other security checks?
+        Self::set_pgid(
+            proc_rc,
+            &mut *proc,
+            parent.as_deref_mut(),
+            &mut self.groups,
+            new_pgid,
+            awoken,
+        )?;
 
         Ok(())
     }
     fn set_pgid(
         proc_rc: &Rc<RefCell<Process>>,
         proc: &mut Process,
+        parent: Option<&mut Process>,
         groups: &mut HashMap<ProcessId, Rc<RefCell<Pgrp>>>,
         new_pgid: ProcessId,
+        awoken: &mut VecDeque<VirtualId>,
     ) -> Result<()> {
         let old_pgid = proc.pgid;
         assert_ne!(old_pgid, new_pgid);
+
+        if let Some(parent) = parent {
+            // Some waitpid waiters may end up waiting for no children, if a child sets its pgid
+            // and the parent was waiting with a pgid filter. Ensure the waiter is awoken and
+            // possibly returns ECHILD.
+            awoken.extend(parent.waitpid_waiting.drain(..));
+        }
 
         let proc_weak = Rc::downgrade(&proc_rc);
         let shall_remove = {
@@ -1158,7 +1191,6 @@ impl<'a> ProcScheme<'a> {
 
         let proc_rc = self.processes.get(&this_pid).ok_or(Error::new(ESRCH))?;
 
-        log::trace!("WAITPID {target:?}");
         log::trace!("PROCS {:#?}", self.processes);
 
         let mut proc_guard = proc_rc.borrow_mut();
@@ -1174,26 +1206,30 @@ impl<'a> ProcScheme<'a> {
                 None
             }
         };
-        let grim_reaper = |w_pid: ProcessId, status: WaitpidStatus| match status {
-            WaitpidStatus::Continued => {
-                if flags.contains(WaitFlags::WCONTINUED) {
-                    Ready((w_pid.0, 0xffff))
-                } else {
-                    Pending
+        let mut grim_reaper =
+            |w_pid: ProcessId, status: WaitpidStatus, scheme: &mut ProcScheme| match status {
+                WaitpidStatus::Continued => {
+                    if flags.contains(WaitFlags::WCONTINUED) {
+                        Ready((w_pid.0, 0xffff))
+                    } else {
+                        Pending
+                    }
                 }
-            }
-            WaitpidStatus::Stopped { signal } => {
-                if flags.contains(WaitFlags::WUNTRACED) {
-                    Ready((w_pid.0, 0x7f | (i32::from(signal.get()) << 8)))
-                } else {
-                    Pending
+                WaitpidStatus::Stopped { signal } => {
+                    if flags.contains(WaitFlags::WUNTRACED) {
+                        Ready((w_pid.0, 0x7f | (i32::from(signal.get()) << 8)))
+                    } else {
+                        Pending
+                    }
                 }
-            }
-            WaitpidStatus::Terminated { signal, status } => Ready((
-                w_pid.0,
-                i32::from(signal.map_or(0, NonZeroU8::get)) | (i32::from(status) << 8),
-            )),
-        };
+                WaitpidStatus::Terminated { signal, status } => {
+                    scheme.reap(w_pid);
+                    Ready((
+                        w_pid.0,
+                        i32::from(signal.map_or(0, NonZeroU8::get)) | (i32::from(status) << 8),
+                    ))
+                }
+            };
 
         match target {
             WaitpidTarget::AnyChild | WaitpidTarget::AnyGroupMember => {
@@ -1208,7 +1244,8 @@ impl<'a> ProcScheme<'a> {
                 .map(|(k, v)| (*k, *v));
                 if let Some((wid, (w_pid, status))) = kv {
                     let _ = proc.waitpid.remove(&wid);
-                    grim_reaper(w_pid, status).map(Ok)
+                    drop(proc_guard);
+                    grim_reaper(w_pid, status, self).map(Ok)
                 } else if flags.contains(WaitFlags::WNOHANG) {
                     Ready(Ok((0, 0)))
                 } else {
@@ -1232,11 +1269,15 @@ impl<'a> ProcScheme<'a> {
                 };
                 if let ProcessStatus::Exited { status, signal } = target_proc.status {
                     let _ = recv_nonblock(&mut proc.waitpid, &key);
-                    grim_reaper(pid, WaitpidStatus::Terminated { signal, status }).map(Ok)
+                    drop(proc_guard);
+                    drop(target_proc);
+                    grim_reaper(pid, WaitpidStatus::Terminated { signal, status }, self).map(Ok)
                 } else {
                     let res = recv_nonblock(&mut proc.waitpid, &key);
                     if let Some((w_pid, status)) = res {
-                        grim_reaper(w_pid, status).map(Ok)
+                        drop(proc_guard);
+                        drop(target_proc);
+                        grim_reaper(w_pid, status, self).map(Ok)
                     } else if flags.contains(WaitFlags::WNOHANG) {
                         Ready(Ok((0, 0)))
                     } else {
@@ -1246,13 +1287,18 @@ impl<'a> ProcScheme<'a> {
                 }
             }
             WaitpidTarget::ProcGroup(pgid) => {
-                let this_pgid = proc.pgid;
-                if !self
-                    .processes
-                    .iter()
-                    .filter(|(pid, _)| **pid != this_pid)
-                    .any(|(_, p)| p.borrow().pgid == this_pgid)
-                {
+                if let Some(group_rc) = self.groups.get(&pgid) {
+                    let group = group_rc.borrow();
+                    if !group
+                        .processes
+                        .iter()
+                        .filter_map(Weak::upgrade)
+                        .filter(|r| !Rc::ptr_eq(r, proc_rc))
+                        .any(|p| p.borrow().ppid == this_pid)
+                    {
+                        return Ready(Err(Error::new(ECHILD)));
+                    }
+                } else {
                     return Ready(Err(Error::new(ECHILD)));
                 }
 
@@ -1262,7 +1308,8 @@ impl<'a> ProcScheme<'a> {
                 };
                 if let Some(&(w_pid, status)) = proc.waitpid.get(&key) {
                     let _ = proc.waitpid.remove(&key);
-                    grim_reaper(w_pid, status).map(Ok)
+                    drop(proc_guard);
+                    grim_reaper(w_pid, status, self).map(Ok)
                 } else if flags.contains(WaitFlags::WNOHANG) {
                     Ready(Ok((0, 0)))
                 } else {
@@ -1271,6 +1318,38 @@ impl<'a> ProcScheme<'a> {
                 }
             }
         }
+    }
+    fn reap(&mut self, pid: ProcessId) {
+        let Entry::Occupied(entry) = self.processes.entry(pid) else {
+            return;
+        };
+        let pgid = {
+            let proc = entry.get().borrow();
+            if !proc.threads.is_empty() {
+                log::error!(
+                    "reaping process (pid {pid:?} with remaining threads: {:#?}",
+                    proc.threads
+                );
+                return;
+            }
+            proc.pgid
+        };
+        let proc_rc = entry.remove();
+        let proc_weak = Rc::downgrade(&proc_rc);
+
+        let Entry::Occupied(group) = self.groups.entry(pgid) else {
+            log::error!("Process missing from its group");
+            return;
+        };
+        group
+            .get()
+            .borrow_mut()
+            .processes
+            .retain(|p| !Weak::ptr_eq(&proc_weak, p));
+        if group.get().borrow_mut().processes.is_empty() {
+            group.remove();
+        }
+        // TODO: notify parent's other waiters if ECHILD would now occur?
     }
     fn on_setresugid(&mut self, pid: ProcessId, raw_buf: &[u8]) -> Result<()> {
         let [new_ruid, new_euid, new_suid, new_rgid, new_egid, new_sgid] = {
@@ -1342,17 +1421,6 @@ impl<'a> ProcScheme<'a> {
             cur: Some(pid),
             procs: &self.processes,
         }
-    }
-    fn check_waitpid_queues(
-        &mut self,
-        waiter: ProcessId,
-        target: WaitpidTarget,
-        mask: WaitFlags,
-    ) -> Option<(ProcessId, i32)> {
-        /*match target {
-            //WaitpidTarget::SingleProc(target_pid) => ,
-        }*/
-        todo!()
     }
     fn on_setrens(&mut self, pid: ProcessId, rns: Option<u32>, ens: Option<u32>) -> Result<()> {
         let proc_rc = self.processes.get(&pid).ok_or(Error::new(EBADFD))?;
@@ -1494,9 +1562,13 @@ impl<'a> ProcScheme<'a> {
                 flags,
                 mut op,
             } => {
-                log::trace!("WORKING ON AWAIT STS CHANGE");
+                log::trace!("WAITPID {req_id:?}, {waiter:?}: {target:?} flags {flags:?}");
+                let res = self.on_waitpid(waiter, target, flags, req_id);
+                log::trace!(
+                    "WAITPID {req_id:?}, {waiter:?}: {target:?} flags {flags:?} -> {res:?}"
+                );
 
-                match self.on_waitpid(waiter, target, flags, req_id) {
+                match res {
                     Ready(Ok((pid, status))) => {
                         if let Ok(status_out) = plain::from_mut_bytes::<i32>(op.payload()) {
                             *status_out = status;
@@ -1597,6 +1669,8 @@ impl<'a> ProcScheme<'a> {
         };
         log::trace!("match group {match_grp:?}");
 
+        let mut err_opt = None;
+
         for (pid, proc_rc) in self.processes.iter() {
             if match_grp.map_or(false, |g| proc_rc.borrow().pgid != g) {
                 continue;
@@ -1612,12 +1686,15 @@ impl<'a> ProcScheme<'a> {
             );
             match res {
                 Ok(()) => (),
-                Err(err) if num_succeeded > 0 => break,
-                Err(err) => return Err(err),
+                Err(err) => err_opt = Some(err),
             }
         }
 
-        if killed_self {
+        if num_succeeded == 0
+            && let Some(err) = err_opt
+        {
+            Err(err)
+        } else if killed_self {
             Err(Error::new(ERESTART))
         } else {
             Ok(())
@@ -1946,7 +2023,7 @@ impl<'a> ProcScheme<'a> {
                 }
                 // TODO(err): Just ignore EINVAL (missing signal config), otherwise handle error?
                 if ppid != INIT_PID {
-                    let _ = self.on_send_sig(
+                    if let Err(err) = self.on_send_sig(
                         INIT_PID, // caller, TODO?
                         KillTarget::Proc(ppid),
                         SIGCHLD as u8,
@@ -1954,7 +2031,9 @@ impl<'a> ProcScheme<'a> {
                         KillMode::Idempotent,
                         true,
                         awoken,
-                    );
+                    ) {
+                        log::trace!("failed to SIGCHLD parent (SIGSTOP): {err}");
+                    }
                 }
             }
             SendResult::SucceededSigcont { ppid, pgid } => {
@@ -1976,7 +2055,7 @@ impl<'a> ProcScheme<'a> {
                 // POSIX XSI allows but does not require SIGCONT to send signals to the parent.
                 // TODO(err): Just ignore EINVAL (missing signal config), otherwise handle error?
                 if ppid != INIT_PID {
-                    let _ = self.on_send_sig(
+                    if let Err(err) = self.on_send_sig(
                         INIT_PID, // caller, TODO?
                         KillTarget::Proc(ppid),
                         SIGCHLD as u8,
@@ -1984,7 +2063,9 @@ impl<'a> ProcScheme<'a> {
                         KillMode::Idempotent,
                         true,
                         awoken,
-                    );
+                    ) {
+                        log::trace!("failed to SIGCHLD parent (SIGCONT): {err}");
+                    }
                 }
             }
         }

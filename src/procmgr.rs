@@ -5,6 +5,7 @@ use core::mem::size_of;
 use core::num::{NonZeroU8, NonZeroUsize};
 use core::ops::Deref;
 use core::ptr::NonNull;
+use core::str::FromStr;
 use core::sync::atomic::Ordering;
 use core::task::Poll::*;
 use core::task::{Context, Poll};
@@ -15,6 +16,7 @@ use alloc::rc::{Rc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use arrayvec::ArrayString;
 use hashbrown::hash_map::{Entry, OccupiedEntry, VacantEntry};
 use hashbrown::{DefaultHashBuilder, HashMap, HashSet};
 
@@ -294,12 +296,15 @@ impl<T> Drop for Page<T> {
     }
 }
 
+const NAME_CAPAC: usize = 32;
+
 #[derive(Debug)]
 struct Process {
     threads: Vec<Rc<RefCell<Thread>>>,
     ppid: ProcessId,
     pgid: ProcessId,
     sid: ProcessId,
+    name: ArrayString<NAME_CAPAC>,
 
     ruid: u32,
     euid: u32,
@@ -546,6 +551,7 @@ impl<'a> ProcScheme<'a> {
                     sgid: 0,
                     rns: 1,
                     ens: 1,
+                    name: ArrayString::<32>::from_str("[init]").unwrap(),
 
                     status: ProcessStatus::PossiblyRunnable,
                     awaiting_threads_term: Vec::new(),
@@ -588,6 +594,7 @@ impl<'a> ProcScheme<'a> {
             sgid,
             ens,
             rns,
+            name,
             ..
         } = *proc_guard.borrow();
 
@@ -603,6 +610,7 @@ impl<'a> ProcScheme<'a> {
                 euid,
                 egid,
                 ens,
+                debug_name: arraystring_to_bytes(name),
             },
         )?;
         let status_fd = FdGuard::new(syscall::dup(
@@ -635,6 +643,7 @@ impl<'a> ProcScheme<'a> {
             sgid,
             rns,
             ens,
+            name,
 
             status: ProcessStatus::PossiblyRunnable,
             awaiting_threads_term: Vec::new(),
@@ -675,6 +684,7 @@ impl<'a> ProcScheme<'a> {
                 euid: proc.euid,
                 egid: proc.egid,
                 ens: proc.ens,
+                debug_name: arraystring_to_bytes(proc.name),
             },
         )?;
 
@@ -933,6 +943,10 @@ impl<'a> ProcScheme<'a> {
                     }
                     ProcCall::Sigdeq => Ready(Response::new(
                         self.on_sigdeq(fd_pid, payload).map(|()| 0),
+                        op,
+                    )),
+                    ProcCall::Rename => Ready(Response::new(
+                        self.on_proc_rename(fd_pid, payload).map(|()| 0),
                         op,
                     )),
                 }
@@ -2110,6 +2124,16 @@ impl<'a> ProcScheme<'a> {
             (buf.proc_control_addr % PAGE_SIZE) as u16,
         ])
     }
+    fn on_proc_rename(&mut self, pid: ProcessId, new_name_raw: &[u8]) -> Result<()> {
+        let new_name = core::str::from_utf8(new_name_raw).map_err(|_| Error::new(EINVAL))?;
+        let mut proc = self
+            .processes
+            .get(&pid)
+            .ok_or(Error::new(ESRCH))?
+            .borrow_mut();
+        proc.name = ArrayString::from_str(&new_name[..new_name.len().min(NAME_CAPAC)]).unwrap();
+        Ok(())
+    }
     fn on_sync_sigtctl(thread: &mut Thread) -> Result<()> {
         log::trace!("Sync tctl {:?}", thread.pid);
         let sigcontrol_fd = FdGuard::new(syscall::dup(*thread.fd, b"sighandler")?);
@@ -2203,4 +2227,10 @@ enum KillMode {
 enum KillTarget {
     Proc(ProcessId),
     Thread(Rc<RefCell<Thread>>),
+}
+fn arraystring_to_bytes<const C: usize>(s: ArrayString<C>) -> [u8; C] {
+    let mut buf = [0_u8; C];
+    let min = buf.len().min(s.len());
+    buf[..min].copy_from_slice(&s.as_bytes()[..min]);
+    buf
 }

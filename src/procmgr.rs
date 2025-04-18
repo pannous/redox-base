@@ -35,8 +35,8 @@ use syscall::schemev2::NewFdFlags;
 use syscall::{
     sig_bit, ContextStatus, ContextVerb, CtxtStsBuf, Error, Event, EventFlags, FobtainFdFlags,
     MapFlags, ProcSchemeAttrs, Result, SenderInfo, SetSighandlerData, SigProcControl, Sigcontrol,
-    EAGAIN, EBADF, EBADFD, ECHILD, EEXIST, EINTR, EINVAL, EIO, ENOENT, ENOSYS, EOPNOTSUPP, EPERM,
-    ERESTART, ESRCH, EWOULDBLOCK, O_CLOEXEC, O_CREAT, PAGE_SIZE,
+    EAGAIN, EBADF, EBADFD, ECHILD, EEXIST, EINTR, EINVAL, EIO, ENOENT, ENOSYS, EOPNOTSUPP,
+    EOWNERDEAD, EPERM, ERESTART, ESRCH, EWOULDBLOCK, O_CLOEXEC, O_CREAT, PAGE_SIZE,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -465,7 +465,11 @@ enum WaitpidStatus {
 enum Handle {
     Init,
     Proc(ProcessId),
-    Thread(Rc<RefCell<Thread>>),
+
+    // Needs to be weak so the thread is owned only by the process. Otherwise there would be a
+    // cyclic reference since the underlying context's file table almost certainly contains the
+    // thread fd itself, linked to this handle.
+    Thread(Weak<RefCell<Thread>>),
 
     // TODO: stateless API, perhaps using intermediate daemon for providing a file-like API
     Ps(Vec<u8>),
@@ -805,7 +809,7 @@ impl<'a> ProcScheme<'a> {
                 b"new-thread" => {
                     let thread = self.new_thread(pid)?;
                     Ok(OpenResult::ThisScheme {
-                        number: self.handles.insert(Handle::Thread(thread)),
+                        number: self.handles.insert(Handle::Thread(Rc::downgrade(&thread))),
                         flags: NewFdFlags::empty(),
                     })
                 }
@@ -815,7 +819,7 @@ impl<'a> ProcScheme<'a> {
                         .and_then(|s| s.parse::<usize>().ok())
                         .ok_or(Error::new(EINVAL))?;
                     let process = self.processes.get(&pid).ok_or(Error::new(EBADFD))?.borrow();
-                    let thread = Rc::clone(process.threads.get(idx).ok_or(Error::new(ENOENT))?);
+                    let thread = Rc::downgrade(process.threads.get(idx).ok_or(Error::new(ENOENT))?);
 
                     return Ok(OpenResult::ThisScheme {
                         number: self.handles.insert(Handle::Thread(thread)),
@@ -824,7 +828,8 @@ impl<'a> ProcScheme<'a> {
                 }
                 _ => return Err(Error::new(EINVAL)),
             },
-            Handle::Thread(ref thread_rc) => {
+            Handle::Thread(ref thread_weak) => {
+                let thread_rc = thread_weak.upgrade().ok_or(Error::new(EOWNERDEAD))?;
                 let thread = thread_rc.borrow();
 
                 // By forwarding all dup calls to the kernel, this fd is now effectively the same
@@ -846,7 +851,10 @@ impl<'a> ProcScheme<'a> {
         let (payload, metadata) = op.payload_and_metadata();
         match self.handles[id] {
             Handle::Init => Response::ready_err(EBADF, op),
-            Handle::Thread(ref thr) => {
+            Handle::Thread(ref thr_weak) => {
+                let Some(thr) = thr_weak.upgrade() else {
+                    return Response::ready_err(EOWNERDEAD, op);
+                };
                 let Some(verb) = ThreadCall::try_from_raw(metadata[0] as usize) else {
                     return Response::ready_err(EINVAL, op);
                 };
@@ -855,14 +863,11 @@ impl<'a> ProcScheme<'a> {
                         Self::on_sync_sigtctl(&mut *thr.borrow_mut()).map(|()| 0),
                         op,
                     )),
-                    ThreadCall::SignalThread => {
-                        let thr = Rc::clone(thr);
-                        Ready(Response::new(
-                            self.on_kill_thread(&thr, metadata[1] as u8, awoken)
-                                .map(|()| 0),
-                            op,
-                        ))
-                    }
+                    ThreadCall::SignalThread => Ready(Response::new(
+                        self.on_kill_thread(&thr, metadata[1] as u8, awoken)
+                            .map(|()| 0),
+                        op,
+                    )),
                 }
             }
             Handle::Proc(fd_pid) => {
@@ -1606,19 +1611,23 @@ impl<'a> ProcScheme<'a> {
                     drop(proc_guard);
 
                     if let Some(parent_rc) = self.processes.get(&ppid) {
-                        let mut parent = parent_rc.borrow_mut();
-
-                        // Transfer children to parent (TODO: to init)
-                        for child_rc in self
-                            .processes
-                            .values()
-                            .filter(|p| !Rc::ptr_eq(p, parent_rc))
-                            .filter(|p| p.borrow().ppid == current_pid)
-                        {
-                            let mut child = child_rc.borrow_mut();
-                            child.ppid = ppid;
-                            parent.waitpid.append(&mut child.waitpid);
+                        if let Some(init_rc) = self.processes.get(&INIT_PID) {
+                            let mut init = init_rc.borrow_mut();
+                            // Transfer children to init
+                            for child_rc in self
+                                .processes
+                                .values()
+                                .filter(|p| !Rc::ptr_eq(p, init_rc))
+                                .filter(|p| p.borrow().ppid == current_pid)
+                            {
+                                let mut child = child_rc.borrow_mut();
+                                child.ppid = INIT_PID;
+                                init.waitpid.append(&mut child.waitpid);
+                            }
+                            awoken.extend(init.waitpid_waiting.drain(..));
                         }
+
+                        let mut parent = parent_rc.borrow_mut();
 
                         parent.waitpid.insert(
                             WaitpidKey {
@@ -2265,7 +2274,7 @@ impl<'a> ProcScheme<'a> {
         // TODO: enforce uid == 0?
 
         let mut string = alloc::format!(
-            "{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<8}{:<16}\n",
+            "{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<8}{:<16}\n",
             "PID",
             "PGID",
             "PPID",
@@ -2276,6 +2285,7 @@ impl<'a> ProcScheme<'a> {
             "EUID",
             "EGID",
             "ENS",
+            "NTHRD",
             "STATUS",
             "NAME",
         );
@@ -2290,7 +2300,7 @@ impl<'a> ProcScheme<'a> {
             use core::fmt::Write;
             writeln!(
                 string,
-                "{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<8}{:<16}",
+                "{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<6}{:<8}{:<16}",
                 pid.0,
                 process.pgid.0,
                 process.ppid.0,
@@ -2301,11 +2311,20 @@ impl<'a> ProcScheme<'a> {
                 process.euid,
                 process.egid,
                 process.ens,
+                process.threads.len(),
                 status,
                 process.name,
             )
             .unwrap();
         }
+
+        // Useful for debugging memory leaks.
+        log::trace!("NEXT FD: {}", {
+            let nextfd = syscall::dup(0, &[]).unwrap();
+            syscall::close(nextfd);
+            nextfd
+        });
+
         Ok(string.into_bytes())
     }
 }

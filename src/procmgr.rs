@@ -1093,17 +1093,30 @@ impl<'a> ProcScheme<'a> {
         new_pgid: ProcessId,
         awoken: &mut VecDeque<VirtualId>,
     ) -> Result<()> {
-        //let caller_proc = self.processes.get(&caller_pid).ok_or(Error::new(ESRCH))?;
+        let caller_proc = self.processes.get(&caller_pid).ok_or(Error::new(ESRCH))?;
+        let caller_sid = caller_proc.borrow().sid;
 
         let proc_rc = self.processes.get(&target_pid).ok_or(Error::new(ESRCH))?;
         let mut proc = proc_rc.borrow_mut();
 
-        let mut parent = (proc.ppid != target_pid)
-            .then(|| self.processes.get(&proc.ppid).map(|p| p.borrow_mut()))
-            .ok_or(Error::new(ESRCH))?;
+        if proc.ppid != caller_pid && target_pid != caller_pid {
+            return Err(Error::new(ESRCH));
+        }
 
-        if proc.pgid == new_pgid {
-            return Ok(());
+        let mut parent = if proc.ppid == target_pid {
+            None // init
+        } else {
+            Some(
+                self.processes
+                    .get(&proc.ppid)
+                    .ok_or(Error::new(ESRCH))?
+                    .borrow_mut(),
+            )
+        };
+
+        // Cannot change the pgid of a process in a different session.
+        if caller_sid != proc.sid {
+            return Err(Error::new(EPERM));
         }
 
         // Session leaders cannot have their pgid changed.
@@ -1111,7 +1124,14 @@ impl<'a> ProcScheme<'a> {
             return Err(Error::new(EPERM));
         }
 
-        // TODO: other security checks?
+        if proc.pgid == new_pgid {
+            return Ok(());
+        }
+
+        if new_pgid != target_pid && !self.groups.contains_key(&new_pgid) {
+            return Err(Error::new(EPERM));
+        }
+
         Self::set_pgid(
             proc_rc,
             &mut *proc,
@@ -1270,8 +1290,11 @@ impl<'a> ProcScheme<'a> {
         let recv_nonblock = |waitpid: &mut BTreeMap<WaitpidKey, (ProcessId, WaitpidStatus)>,
                              key: &WaitpidKey|
          -> Option<(ProcessId, WaitpidStatus)> {
-            if let Some((pid, sts)) = waitpid.get(key).map(|(k, v)| (*k, *v)) {
+            if let Some((pid, mut sts)) = waitpid.get(key).map(|(k, v)| (*k, *v)) {
                 waitpid.remove(key);
+                /*while let Some((_, new_sts)) = waitpid.remove(&WaitpidKey { pid: Some(pid), pgid: None }) {
+                    sts = new_sts;
+                }*/
                 Some((pid, sts))
             } else {
                 None

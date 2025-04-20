@@ -1140,8 +1140,9 @@ impl<'a> ProcScheme<'a> {
             return Err(Error::new(EPERM));
         }
 
-        // After execv(), i.e. ProcCall::DisableSetpgid, setpgid shall return EACCESS
-        if proc.disabled_setpgid {
+        // After execv(), i.e. ProcCall::DisableSetpgid, setpgid where target_pid is a child
+        // process of the calling process, shall return EACCESS.
+        if proc.ppid == caller_pid && proc.disabled_setpgid {
             return Err(Error::new(EACCES));
         }
 

@@ -1298,7 +1298,7 @@ impl<'a> ProcScheme<'a> {
             }
         }
 
-        let proc_rc = self.processes.get(&this_pid).ok_or(Error::new(ESRCH))?;
+        let proc_rc = self.processes.get(&this_pid).ok_or(Error::new(EBADFD))?;
 
         log::trace!("PROCS {:#?}", self.processes);
 
@@ -1369,7 +1369,7 @@ impl<'a> ProcScheme<'a> {
                 if this_pid == pid {
                     return Ready(Err(Error::new(EINVAL)));
                 }
-                let target_proc_rc = self.processes.get(&pid).ok_or(Error::new(ESRCH))?;
+                let target_proc_rc = self.processes.get(&pid).ok_or(Error::new(ECHILD))?;
                 let mut target_proc = target_proc_rc.borrow_mut();
 
                 if target_proc.ppid != this_pid {

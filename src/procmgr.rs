@@ -2288,12 +2288,19 @@ impl<'a> ProcScheme<'a> {
         ])
     }
     fn on_proc_rename(&mut self, pid: ProcessId, new_name_raw: &[u8]) -> Result<()> {
-        let new_name = core::str::from_utf8(new_name_raw).map_err(|_| Error::new(EINVAL))?;
+        let name_len = new_name_raw
+            .iter()
+            .position(|c| *c == 0)
+            .unwrap_or(new_name_raw.len());
+
+        let new_name =
+            core::str::from_utf8(&new_name_raw[..name_len]).map_err(|_| Error::new(EINVAL))?;
         let mut proc = self
             .processes
             .get(&pid)
             .ok_or(Error::new(ESRCH))?
             .borrow_mut();
+
         proc.name = ArrayString::from_str(&new_name[..new_name.len().min(NAME_CAPAC)]).unwrap();
         if let Err(err) = proc.sync_kernel_attrs(pid, self.auth) {
             log::warn!("Failed to set kernel attrs when renaming proc: {err}");

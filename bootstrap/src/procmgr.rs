@@ -33,8 +33,8 @@ use syscall::schemev2::NewFdFlags;
 use syscall::{
     sig_bit, ContextStatus, ContextVerb, CtxtStsBuf, Error, Event, EventFlags, FobtainFdFlags,
     MapFlags, ProcSchemeAttrs, Result, SenderInfo, SetSighandlerData, SigProcControl, Sigcontrol,
-    EACCES, EAGAIN, EBADF, EBADFD, ECHILD, EEXIST, EINTR, EINVAL, ENOENT, ENOSYS, EOPNOTSUPP,
-    EOWNERDEAD, EPERM, ERESTART, ESRCH, EWOULDBLOCK, O_CREAT, PAGE_SIZE,
+    EACCES, EAGAIN, EBADF, EBADFD, ECANCELED, ECHILD, EEXIST, EINTR, EINVAL, ENOENT, ENOSYS,
+    EOPNOTSUPP, EOWNERDEAD, EPERM, ERESTART, ESRCH, EWOULDBLOCK, O_CREAT, PAGE_SIZE,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -246,6 +246,39 @@ fn handle_scheme<'a>(
                     log::trace!("UNKNOWN: {op:?}");
                     Response::ready_err(ENOSYS, op)
                 }
+            }
+        }
+        RequestKind::Cancellation(req) => {
+            if let Entry::Occupied(state) = states.entry(VirtualId::KernelId(req.id)) {
+                match state.remove() {
+                    PendingState::AwaitingStatusChange { op, .. } => {
+                        Response::ready_err(ECANCELED, op)
+                    }
+                    // TODO: Test this by calling exit() on behalf of another process using the IPC
+                    // call Exit, then cancel. Keep in mind this won't cancel the underlying exit, just
+                    // detach the waiter from it.
+                    PendingState::AwaitingThreadsTermination(pid, tag) => {
+                        let resp = if let Some(tag) = tag {
+                            Ready(Response::err(ECANCELED, tag))
+                        } else {
+                            Pending
+                        };
+
+                        let vid = VirtualId::InternalId(scheme.next_internal_id);
+                        scheme.next_internal_id += 1;
+                        states.insert(vid, PendingState::AwaitingThreadsTermination(pid, None));
+                        awoken.push_back(vid);
+
+                        resp
+                    }
+                    PendingState::Placeholder => {
+                        log::warn!("State {:?} was placeholder!", req.id);
+                        Pending
+                    }
+                }
+            } else {
+                log::warn!("Cancellation for unknown id {:?}", req.id);
+                Pending
             }
         }
         RequestKind::SendFd(req) => Ready(scheme.on_sendfd(socket, req)),

@@ -7,10 +7,6 @@ edition = "2021"
 name = "smolnetd"
 path = "src/main.rs"
 
-[lib]
-name = "redox_netstack"
-path = "src/lib/lib.rs"
-
 [dependencies]
 netutils = { git = "https://gitlab.redox-os.org/redox-os/netutils.git" }
 redox_event = "0.4.1"

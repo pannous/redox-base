@@ -7,12 +7,13 @@ use event::{EventFlags, EventQueue};
 use libredox::flag::{O_CREAT, O_NONBLOCK, O_RDWR};
 use libredox::Fd;
 
-use redox_netstack::logger;
 use scheme::Smolnetd;
 use smoltcp::wire::EthernetAddress;
 
 mod buffer_pool;
+mod error;
 mod link;
+mod logger;
 mod port_set;
 mod router;
 mod scheme;

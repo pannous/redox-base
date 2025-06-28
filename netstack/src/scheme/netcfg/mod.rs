@@ -19,13 +19,13 @@ use syscall::{
     Result as SyscallResult, SchemeMut,
 };
 
+use crate::error::{Error, Result};
 use crate::link::DeviceList;
 use crate::router::route_table::{RouteTable, Rule};
 
 use self::nodes::*;
 use self::notifier::*;
 use super::{post_fevent, Interface};
-use redox_netstack::error::{Error, Result};
 
 const WRITE_BUFFER_MAX_SIZE: usize = 0xffff;
 

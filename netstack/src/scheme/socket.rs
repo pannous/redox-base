@@ -20,9 +20,9 @@ use syscall::{
 };
 
 use super::Interface;
+use crate::error::{Error, Result};
 use crate::router::route_table::RouteTable;
 use crate::scheme::smoltcp::iface::SocketHandle;
-use redox_netstack::error::{Error, Result};
 use smoltcp::socket::AnySocket;
 
 use super::{post_fevent, SocketSet};

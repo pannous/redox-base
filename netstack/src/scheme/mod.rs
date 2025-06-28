@@ -28,7 +28,7 @@ use self::ip::IpScheme;
 use self::netcfg::NetCfgScheme;
 use self::tcp::TcpScheme;
 use self::udp::UdpScheme;
-use redox_netstack::error::{Error, Result};
+use crate::error::{Error, Result};
 
 mod icmp;
 mod ip;

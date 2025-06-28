@@ -5,7 +5,7 @@ edition = "2021"
 
 [[bin]]
 name = "smolnetd"
-path = "src/smolnetd/main.rs"
+path = "src/main.rs"
 
 [lib]
 name = "redox_netstack"

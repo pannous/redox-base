@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::mem;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
@@ -75,10 +75,53 @@ impl LogScheme {
             }
         });
 
+        let output_tx2 = output_tx.clone();
+        std::thread::spawn(move || {
+            let mut debug_file = std::fs::File::open("/scheme/sys/log").unwrap();
+            let mut handle_buf = vec![];
+            let mut buf = [0; 4096];
+            buf[.."kernel: ".len()].copy_from_slice(b"kernel: ");
+            loop {
+                let n = debug_file.read(&mut buf["kernel: ".len()..]).unwrap();
+                if n == 0 {
+                    // FIXME currently possible as /scheme/log/kernel presents a snapshot of the log queue
+                    break;
+                }
+                Self::write_logs(&output_tx2, &mut handle_buf, "kernel", &buf);
+            }
+        });
+
         LogScheme {
             next_id: 0,
             output_tx,
             handles: BTreeMap::new(),
+        }
+    }
+
+    fn write_logs(
+        output_tx: &Sender<OutputCmd>,
+        handle_buf: &mut Vec<u8>,
+        context: &str,
+        buf: &[u8],
+    ) {
+        let mut i = 0;
+        while i < buf.len() {
+            let b = buf[i];
+
+            if handle_buf.is_empty() && !context.is_empty() {
+                handle_buf.extend_from_slice(context.as_bytes());
+                handle_buf.extend_from_slice(b": ");
+            }
+
+            handle_buf.push(b);
+
+            if b == b'\n' {
+                output_tx
+                    .send(OutputCmd::Log(mem::take(handle_buf)))
+                    .unwrap();
+            }
+
+            i += 1;
         }
     }
 }
@@ -146,27 +189,9 @@ impl SchemeSync for LogScheme {
 
         let handle_buf = bufs.entry(ctx.pid).or_insert_with(|| Vec::new());
 
-        let mut i = 0;
-        while i < buf.len() {
-            let b = buf[i];
+        Self::write_logs(&self.output_tx, handle_buf, context, buf);
 
-            if handle_buf.is_empty() && !context.is_empty() {
-                handle_buf.extend_from_slice(context.as_bytes());
-                handle_buf.extend_from_slice(b": ");
-            }
-
-            handle_buf.push(b);
-
-            if b == b'\n' {
-                self.output_tx
-                    .send(OutputCmd::Log(mem::take(handle_buf)))
-                    .unwrap();
-            }
-
-            i += 1;
-        }
-
-        Ok(i)
+        Ok(buf.len())
     }
 
     fn fcntl(&mut self, id: usize, _cmd: usize, _arg: usize, _ctx: &CallerCtx) -> Result<usize> {

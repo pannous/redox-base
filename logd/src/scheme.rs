@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::mem;
@@ -40,6 +40,7 @@ impl LogScheme {
 
         std::thread::spawn(move || {
             let mut files: Vec<File> = vec![];
+            let mut logs = VecDeque::new();
             for cmd in output_rx {
                 match cmd {
                     OutputCmd::Log(line) => {
@@ -49,11 +50,22 @@ impl LogScheme {
                             let _ = file.write(&line);
                             let _ = file.flush();
                         }
+                        logs.push_back(line);
+                        // Keep a limited amount of logs for backfilling to bound memory usage
+                        while logs.len() > 1000 {
+                            logs.pop_front();
+                        }
                     }
                     OutputCmd::AddSink(sink_path) => {
-                        // FIXME backfill log messages that were sent to other log sinks
                         match OpenOptions::new().write(true).open(&sink_path) {
-                            Ok(file) => files.push(file),
+                            Ok(mut file) => {
+                                for line in &logs {
+                                    let _ = file.write(line);
+                                    let _ = file.flush();
+                                }
+
+                                files.push(file)
+                            }
                             Err(err) => {
                                 eprintln!("logd: failed to open {:?}: {:?}", sink_path, err)
                             }

@@ -26,6 +26,8 @@ pub struct LogScheme {
 
 enum OutputCmd {
     Log(Vec<u8>),
+    /// Log a message from the kernel. This skips writing it back to the kernel debug output.
+    LogKernel(Vec<u8>),
     AddSink(PathBuf),
 }
 
@@ -46,6 +48,17 @@ impl LogScheme {
                     OutputCmd::Log(line) => {
                         let _ = kernel_debug.write(&line);
                         let _ = kernel_debug.flush();
+                        for file in &mut files {
+                            let _ = file.write(&line);
+                            let _ = file.flush();
+                        }
+                        logs.push_back(line);
+                        // Keep a limited amount of logs for backfilling to bound memory usage
+                        while logs.len() > 1000 {
+                            logs.pop_front();
+                        }
+                    }
+                    OutputCmd::LogKernel(line) => {
                         for file in &mut files {
                             let _ = file.write(&line);
                             let _ = file.flush();
@@ -87,7 +100,7 @@ impl LogScheme {
                     // FIXME currently possible as /scheme/log/kernel presents a snapshot of the log queue
                     break;
                 }
-                Self::write_logs(&output_tx2, &mut handle_buf, "kernel", &buf);
+                Self::write_logs(&output_tx2, &mut handle_buf, "kernel", &buf, true);
             }
         });
 
@@ -103,6 +116,7 @@ impl LogScheme {
         handle_buf: &mut Vec<u8>,
         context: &str,
         buf: &[u8],
+        kernel: bool,
     ) {
         let mut i = 0;
         while i < buf.len() {
@@ -117,7 +131,11 @@ impl LogScheme {
 
             if b == b'\n' {
                 output_tx
-                    .send(OutputCmd::Log(mem::take(handle_buf)))
+                    .send(if kernel {
+                        OutputCmd::LogKernel(mem::take(handle_buf))
+                    } else {
+                        OutputCmd::Log(mem::take(handle_buf))
+                    })
                     .unwrap();
             }
 
@@ -189,7 +207,7 @@ impl SchemeSync for LogScheme {
 
         let handle_buf = bufs.entry(ctx.pid).or_insert_with(|| Vec::new());
 
-        Self::write_logs(&self.output_tx, handle_buf, context, buf);
+        Self::write_logs(&self.output_tx, handle_buf, context, buf, false);
 
         Ok(buf.len())
     }

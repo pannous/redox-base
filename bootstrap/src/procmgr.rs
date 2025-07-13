@@ -281,6 +281,11 @@ fn handle_scheme<'a>(
                 Pending
             }
         }
+        RequestKind::OnClose { id } => {
+            scheme.on_close(id);
+            // no response associated
+            Pending
+        }
         RequestKind::SendFd(req) => Ready(scheme.on_sendfd(socket, req)),
 
         // ignore
@@ -2398,6 +2403,11 @@ impl<'a> ProcScheme<'a> {
         dst.copy_from_slice(unsafe { plain::as_bytes(&front) });
         Ok(())
     }
+    fn on_close(&mut self, id: usize) {
+        if self.handles.try_remove(id).is_none() {
+            log::error!("on_close for nonexistent handle, id={id}");
+        }
+    }
     fn pgrp_is_orphaned(&self, grp: ProcessId) -> Option<bool> {
         let group = self.groups.get(&grp)?.borrow();
 
@@ -2483,6 +2493,13 @@ impl<'a> ProcScheme<'a> {
             syscall::close(nextfd);
             nextfd
         });
+        log::trace!("{} processes", self.processes.len());
+        log::trace!("{} groups", self.groups.len());
+        log::trace!("{} sessions", self.sessions.len());
+        log::trace!("{} handles", self.handles.len());
+        log::trace!("{} thread_lookup", self.thread_lookup.len());
+        log::trace!("{} next_id", self.next_internal_id);
+
 
         Ok(string.into_bytes())
     }

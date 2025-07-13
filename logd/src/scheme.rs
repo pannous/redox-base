@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::mem;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
@@ -26,26 +26,59 @@ pub struct LogScheme {
 
 enum OutputCmd {
     Log(Vec<u8>),
+    /// Log a message from the kernel. This skips writing it back to the kernel debug output.
+    LogKernel(Vec<u8>),
     AddSink(PathBuf),
 }
 
 impl LogScheme {
-    pub fn new(mut files: Vec<File>) -> Self {
+    pub fn new() -> Self {
+        let mut kernel_debug = OpenOptions::new()
+            .write(true)
+            .open("/scheme/debug")
+            .unwrap();
+
         let (output_tx, output_rx) = mpsc::channel::<OutputCmd>();
 
         std::thread::spawn(move || {
+            let mut files: Vec<File> = vec![];
+            let mut logs = VecDeque::new();
             for cmd in output_rx {
                 match cmd {
                     OutputCmd::Log(line) => {
+                        let _ = kernel_debug.write(&line);
+                        let _ = kernel_debug.flush();
                         for file in &mut files {
                             let _ = file.write(&line);
                             let _ = file.flush();
                         }
+                        logs.push_back(line);
+                        // Keep a limited amount of logs for backfilling to bound memory usage
+                        while logs.len() > 1000 {
+                            logs.pop_front();
+                        }
+                    }
+                    OutputCmd::LogKernel(line) => {
+                        for file in &mut files {
+                            let _ = file.write(&line);
+                            let _ = file.flush();
+                        }
+                        logs.push_back(line);
+                        // Keep a limited amount of logs for backfilling to bound memory usage
+                        while logs.len() > 1000 {
+                            logs.pop_front();
+                        }
                     }
                     OutputCmd::AddSink(sink_path) => {
-                        // FIXME backfill log messages that were sent to other log sinks
                         match OpenOptions::new().write(true).open(&sink_path) {
-                            Ok(file) => files.push(file),
+                            Ok(mut file) => {
+                                for line in &logs {
+                                    let _ = file.write(line);
+                                    let _ = file.flush();
+                                }
+
+                                files.push(file)
+                            }
                             Err(err) => {
                                 eprintln!("logd: failed to open {:?}: {:?}", sink_path, err)
                             }
@@ -55,10 +88,58 @@ impl LogScheme {
             }
         });
 
+        let output_tx2 = output_tx.clone();
+        std::thread::spawn(move || {
+            let mut debug_file = std::fs::File::open("/scheme/sys/log").unwrap();
+            let mut handle_buf = vec![];
+            let mut buf = [0; 4096];
+            buf[.."kernel: ".len()].copy_from_slice(b"kernel: ");
+            loop {
+                let n = debug_file.read(&mut buf["kernel: ".len()..]).unwrap();
+                if n == 0 {
+                    // FIXME currently possible as /scheme/log/kernel presents a snapshot of the log queue
+                    break;
+                }
+                Self::write_logs(&output_tx2, &mut handle_buf, "kernel", &buf, true);
+            }
+        });
+
         LogScheme {
             next_id: 0,
             output_tx,
             handles: BTreeMap::new(),
+        }
+    }
+
+    fn write_logs(
+        output_tx: &Sender<OutputCmd>,
+        handle_buf: &mut Vec<u8>,
+        context: &str,
+        buf: &[u8],
+        kernel: bool,
+    ) {
+        let mut i = 0;
+        while i < buf.len() {
+            let b = buf[i];
+
+            if handle_buf.is_empty() && !context.is_empty() {
+                handle_buf.extend_from_slice(context.as_bytes());
+                handle_buf.extend_from_slice(b": ");
+            }
+
+            handle_buf.push(b);
+
+            if b == b'\n' {
+                output_tx
+                    .send(if kernel {
+                        OutputCmd::LogKernel(mem::take(handle_buf))
+                    } else {
+                        OutputCmd::Log(mem::take(handle_buf))
+                    })
+                    .unwrap();
+            }
+
+            i += 1;
         }
     }
 }
@@ -126,27 +207,9 @@ impl SchemeSync for LogScheme {
 
         let handle_buf = bufs.entry(ctx.pid).or_insert_with(|| Vec::new());
 
-        let mut i = 0;
-        while i < buf.len() {
-            let b = buf[i];
+        Self::write_logs(&self.output_tx, handle_buf, context, buf, false);
 
-            if handle_buf.is_empty() && !context.is_empty() {
-                handle_buf.extend_from_slice(context.as_bytes());
-                handle_buf.extend_from_slice(b": ");
-            }
-
-            handle_buf.push(b);
-
-            if b == b'\n' {
-                self.output_tx
-                    .send(OutputCmd::Log(mem::take(handle_buf)))
-                    .unwrap();
-            }
-
-            i += 1;
-        }
-
-        Ok(i)
+        Ok(buf.len())
     }
 
     fn fcntl(&mut self, id: usize, _cmd: usize, _arg: usize, _ctx: &CallerCtx) -> Result<usize> {

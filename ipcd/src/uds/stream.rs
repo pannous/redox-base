@@ -377,7 +377,7 @@ impl<'sock> UdsStreamScheme<'sock> {
             SocketCall::GetSockOpt => self.handle_getsockopt(id, metadata[1] as i32, payload),
             SocketCall::SendMsg => self.handle_sendmsg(id, payload, ctx),
             SocketCall::RecvMsg => self.handle_recvmsg(id, payload),
-            _ => Err(Error::new(OPNOTSUP)),
+            _ => Err(Error::new(EOPNOTSUPP)),
         }
     }
 

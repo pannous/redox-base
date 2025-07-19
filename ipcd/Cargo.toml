@@ -4,7 +4,7 @@ name = "ipcd"
 version = "0.1.0"
 
 [dependencies]
-libredox = { version = "0.1.4", features = ["call"]}
+libredox = { version = "0.1.6", features = ["call"]}
 redox-daemon = "0.1.2"
 redox_syscall = "0.5"
 redox-scheme = "0.7.0"

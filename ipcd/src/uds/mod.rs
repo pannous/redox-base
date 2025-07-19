@@ -208,6 +208,9 @@ impl NumFromBytes for usize {
 }
 
 fn get_uid_gid_from_pid(target_pid: usize) -> Result<(u32, u32, u32)> {
+    // broken anyways
+    return Err(Error::new(EINVAL));
+    /*
     let mut buffer = [0u8; mem::size_of::<ProcMeta>()];
     let _ = libredox::call::get_proc_credentials(target_pid, &mut buffer).map_err(|e| {
         log::error!(
@@ -224,6 +227,7 @@ fn get_uid_gid_from_pid(target_pid: usize) -> Result<(u32, u32, u32)> {
     cursor += mem::size_of::<u32>() * 3;
     let gid = read_num::<u32>(&buffer[cursor..])?;
     Ok((pid, uid, gid))
+    */
 }
 
 fn read_msghdr_info(stream: &mut [u8]) -> Result<(usize, usize, usize)> {

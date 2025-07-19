@@ -8,7 +8,6 @@ name = "smolnetd"
 path = "src/main.rs"
 
 [dependencies]
-netutils = { git = "https://gitlab.redox-os.org/redox-os/netutils.git" }
 redox_event = "0.4.1"
 redox-daemon = "0.1.2"
 redox_syscall = { version = "0.5", features = ["std"] }

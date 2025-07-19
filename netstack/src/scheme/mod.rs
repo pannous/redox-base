@@ -5,7 +5,6 @@ use crate::router::route_table::{RouteTable, Rule};
 use crate::router::Router;
 use crate::scheme::smoltcp::iface::SocketSet as SmoltcpSocketSet;
 use libredox::Fd;
-use netutils::getcfg;
 use smoltcp;
 use smoltcp::iface::{Config, Interface as SmoltcpInterface};
 use smoltcp::phy::Tracer;
@@ -42,6 +41,13 @@ type Interface = Rc<RefCell<SmoltcpInterface>>;
 
 const MAX_DURATION: Duration = Duration::from_micros(u64::MAX);
 const MIN_DURATION: Duration = Duration::from_micros(0);
+
+fn getcfg(key: &str) -> Result<String> {
+    let mut value = String::new();
+    let mut file = File::open(format!("/etc/net/{key}"))?;
+    file.read_to_string(&mut value)?;
+    Ok(value.trim().to_string())
+}
 
 pub struct Smolnetd {
     router_device: Tracer<Router>,

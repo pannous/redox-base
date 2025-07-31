@@ -9,8 +9,8 @@ use libc::{AF_UNIX, SO_DOMAIN, SO_PASSCRED};
 use rand::prelude::*;
 use redox_rt::protocol::SocketCall;
 use redox_scheme::{
-    scheme::SchemeSync, CallerCtx, OpenResult, Response, SendFdRequest, SignalBehavior,
-    Socket as SchemeSocket,
+    scheme::SchemeSync, CallerCtx, OpenResult, RecvFdRequest, Response, SendFdRequest,
+    SignalBehavior, Socket as SchemeSocket,
 };
 use std::{
     cell::RefCell,
@@ -417,7 +417,7 @@ impl<'sock> UdsStreamScheme<'sock> {
             socket.path = Some(path_owned.clone());
             socket.state = State::Bound;
             token = self.rng.next_u64();
-            socket.issued_token.insert(token);
+            socket.issued_token = Some(token);
         }
 
         self.socket_paths.insert(path_owned, socket_rc.clone());
@@ -852,9 +852,10 @@ impl<'sock> UdsStreamScheme<'sock> {
         receiver_id: usize,
         sendfd_request: &SendFdRequest,
     ) -> Result<usize> {
-        let mut new_fd = usize::MAX;
+        let mut new_fds = Vec::new();
+        new_fds.resize(sendfd_request.num_fds(), usize::MAX);
         if let Err(e) =
-            sendfd_request.obtain_fd(&self.socket, FobtainFdFlags::empty(), Err(&mut new_fd))
+            sendfd_request.obtain_fd(&self.socket, FobtainFdFlags::UPPER_TBL, &mut new_fds)
         {
             eprintln!("sendfd_inner: obtain_fd failed with error: {:?}", e);
             return Err(e);
@@ -863,11 +864,52 @@ impl<'sock> UdsStreamScheme<'sock> {
         let mut receiver = receiver_rc.borrow_mut();
 
         let connection = receiver.require_connected_connection()?;
-        connection.fds.push_back(new_fd);
+        for new_fd in &new_fds {
+            connection.fds.push_back(*new_fd);
+        }
 
         self.post_fevent(receiver_id, EVENT_READ.bits())?;
 
-        Ok(new_fd)
+        Ok(new_fds.len())
+    }
+
+    fn recvfd_inner(&mut self, recvfd_request: &RecvFdRequest) -> Result<OpenResult> {
+        let socket_id = recvfd_request.id();
+        let socket_rc = self.get_socket(socket_id)?;
+        let mut socket = socket_rc.borrow_mut();
+
+        if recvfd_request.num_fds() == 0 {
+            return Ok(OpenResult::OtherSchemeMultiple { num_fds: 0 });
+        }
+
+        match socket.state {
+            State::Established | State::Accepted => {
+                let connection = socket.require_connected_connection()?;
+
+                if connection.fds.len() < recvfd_request.num_fds() {
+                    return if connection.is_peer_shutdown {
+                        Ok(OpenResult::OtherSchemeMultiple { num_fds: 0 }) // EOF, no data to read
+                    } else if (socket.flags as usize) & O_NONBLOCK == O_NONBLOCK {
+                        Ok(OpenResult::WouldBlock)
+                    } else {
+                        Err(Error::new(EWOULDBLOCK))
+                    };
+                }
+
+                let fds: Vec<usize> = connection.fds.drain(..recvfd_request.num_fds()).collect();
+                if let Err(e) = recvfd_request.move_fd(&self.socket, FmoveFdFlags::empty(), &fds) {
+                    eprintln!("recvfd_inner: move_fd failed with error: {:?}", e);
+                    return Err(Error::new(EPROTO));
+                }
+
+                Ok(OpenResult::OtherSchemeMultiple {
+                    num_fds: recvfd_request.num_fds(),
+                })
+            }
+            State::Closed => Err(Error::new(EPIPE)),
+            State::Listening => Err(Error::new(EOPNOTSUPP)),
+            _ => Err(Error::new(ENOTCONN)),
+        }
     }
 
     fn read_inner(connection: &mut Connection, buf: &mut [u8], flags: u32) -> Result<usize> {
@@ -1070,6 +1112,10 @@ impl<'sock> SchemeSync for UdsStreamScheme<'sock> {
         let (receiver_id, _) = self.get_connected_peer(id)?;
 
         self.sendfd_inner(receiver_id, sendfd_request)
+    }
+
+    fn on_recvfd(&mut self, recvfd_request: &RecvFdRequest) -> Result<OpenResult> {
+        self.recvfd_inner(recvfd_request)
     }
 
     fn on_close(&mut self, id: usize) {

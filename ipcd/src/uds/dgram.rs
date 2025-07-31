@@ -10,8 +10,8 @@ use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
 use redox_rt::protocol::SocketCall;
 use redox_scheme::{
-    scheme::SchemeSync, CallerCtx, OpenResult, Response, SendFdRequest, SignalBehavior,
-    Socket as SchemeSocket,
+    scheme::SchemeSync, CallerCtx, OpenResult, RecvFdRequest, Response, SendFdRequest,
+    SignalBehavior, Socket as SchemeSocket,
 };
 use std::{
     cell::RefCell,
@@ -558,19 +558,56 @@ impl<'sock> UdsDgramScheme<'sock> {
     }
 
     fn sendfd_inner(&mut self, sendfd_request: &SendFdRequest) -> Result<usize> {
-        let mut new_fd = usize::MAX;
+        if sendfd_request.num_fds() == 0 {
+            return Ok(0);
+        }
+        let mut new_fds = Vec::new();
+        new_fds.resize(sendfd_request.num_fds(), usize::MAX);
         if let Err(e) =
-            sendfd_request.obtain_fd(&self.socket, FobtainFdFlags::empty(), Err(&mut new_fd))
+            sendfd_request.obtain_fd(&self.socket, FobtainFdFlags::UPPER_TBL, &mut new_fds)
         {
             eprintln!("sendfd_inner: obtain_fd failed with error: {:?}", e);
             return Err(e);
         }
         let socket_id = sendfd_request.id();
         let (remote_id, remote_rc) = self.get_connected_peer(socket_id)?;
-        remote_rc.borrow_mut().fds.push_back(new_fd);
+        {
+            let mut remote = remote_rc.borrow_mut();
+            for new_fd in &new_fds {
+                remote.fds.push_back(*new_fd);
+            }
+        }
 
         self.post_fevent(remote_id, EVENT_READ.bits())?;
-        Ok(new_fd)
+        Ok(new_fds.len())
+    }
+
+    fn recvfd_inner(&mut self, recvfd_request: &RecvFdRequest) -> Result<OpenResult> {
+        if recvfd_request.num_fds() == 0 {
+            return Ok(OpenResult::OtherSchemeMultiple { num_fds: 0 });
+        }
+
+        let socket_id = recvfd_request.id();
+        let socket_rc = self.get_socket(socket_id)?;
+        let mut socket = socket_rc.borrow_mut();
+
+        if socket.fds.len() < recvfd_request.num_fds() {
+            return if (socket.flags as usize) & O_NONBLOCK == O_NONBLOCK {
+                Ok(OpenResult::WouldBlock)
+            } else {
+                Err(Error::new(EWOULDBLOCK))
+            };
+        }
+
+        let fds: Vec<usize> = socket.fds.drain(..recvfd_request.num_fds()).collect();
+        if let Err(e) = recvfd_request.move_fd(&self.socket, FmoveFdFlags::empty(), &fds) {
+            eprintln!("recvfd_inner: move_fd failed with error: {:?}", e);
+            return Err(Error::new(EPROTO));
+        }
+
+        Ok(OpenResult::OtherSchemeMultiple {
+            num_fds: recvfd_request.num_fds(),
+        })
     }
 }
 
@@ -671,6 +708,10 @@ impl<'sock> SchemeSync for UdsDgramScheme<'sock> {
 
     fn on_sendfd(&mut self, sendfd_request: &SendFdRequest) -> Result<usize> {
         self.sendfd_inner(sendfd_request)
+    }
+
+    fn on_recvfd(&mut self, recvfd_request: &RecvFdRequest) -> Result<OpenResult> {
+        self.recvfd_inner(recvfd_request)
     }
 
     fn fcntl(&mut self, id: usize, cmd: usize, arg: usize, _ctx: &CallerCtx) -> Result<usize> {

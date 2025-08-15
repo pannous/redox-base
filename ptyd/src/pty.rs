@@ -52,6 +52,9 @@ impl Pty {
         let cc = self.termios.c_cc;
 
         let is_cc = |b: u8, i: usize| -> bool { b != 0 && b == cc[i] };
+        // TODO: Delete this constant once termios is bumped (it's in termios).
+        const _POSIX_VDISABLE: u8 = 0;
+        let is_vdisable = |i: usize| -> bool { cc[i] == _POSIX_VDISABLE };
 
         let inlcr = ifl & INLCR == INLCR;
         let igncr = ifl & IGNCR == IGNCR;
@@ -68,7 +71,7 @@ impl Pty {
         for &byte in buf.iter() {
             let mut b = byte;
 
-            // Input tranlation
+            // Input translation
             if b == b'\n' {
                 if inlcr {
                     b = b'\r';
@@ -126,7 +129,7 @@ impl Pty {
                     b = 0;
                 }
 
-                if is_cc(b, VERASE) {
+                if is_cc(b, VERASE) && !is_vdisable(VERASE) {
                     if let Some(_c) = self.cooked.pop() {
                         if echoe {
                             self.output(&[8, b' ', 8]);
@@ -153,25 +156,34 @@ impl Pty {
             }
 
             if isig {
-                if is_cc(b, VINTR) {
+                if is_cc(b, VINTR) && !is_vdisable(VINTR) {
                     if self.pgrp != 0 {
-                        let _ = libredox::call::kill(-(self.pgrp as isize) as usize, libredox::flag::SIGINT as _);
+                        let _ = libredox::call::kill(
+                            -(self.pgrp as isize) as usize,
+                            libredox::flag::SIGINT as _,
+                        );
                     }
 
                     b = 0;
                 }
 
-                if is_cc(b, VQUIT) {
+                if is_cc(b, VQUIT) && !is_vdisable(VQUIT) {
                     if self.pgrp != 0 {
-                        let _ = libredox::call::kill(-(self.pgrp as isize) as usize, libredox::flag::SIGQUIT as _);
+                        let _ = libredox::call::kill(
+                            -(self.pgrp as isize) as usize,
+                            libredox::flag::SIGQUIT as _,
+                        );
                     }
 
                     b = 0;
                 }
 
-                if is_cc(b, VSUSP) {
+                if is_cc(b, VSUSP) && !is_vdisable(VSUSP) {
                     if self.pgrp != 0 {
-                        let _ = libredox::call::kill(-(self.pgrp as isize) as usize, libredox::flag::SIGTSTP as _);
+                        let _ = libredox::call::kill(
+                            -(self.pgrp as isize) as usize,
+                            libredox::flag::SIGTSTP as _,
+                        );
                     }
 
                     b = 0;

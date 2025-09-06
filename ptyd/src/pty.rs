@@ -1,8 +1,9 @@
 use std::collections::VecDeque;
+use std::io::{Cursor, Write};
 
 use redox_termios::*;
 use syscall;
-use syscall::error::Result;
+use syscall::error::{Error, Result, ENAMETOOLONG};
 
 pub struct Pty {
     pub id: usize,
@@ -32,16 +33,9 @@ impl Pty {
     }
 
     pub fn path(&self, buf: &mut [u8]) -> Result<usize> {
-        let path_str = format!("/scheme/pty/{}", self.id);
-        let path = path_str.as_bytes();
-
-        let mut i = 0;
-        while i < buf.len() && i < path.len() {
-            buf[i] = path[i];
-            i += 1;
-        }
-
-        Ok(i)
+        let mut buf = Cursor::new(buf);
+        let _ = write!(buf, "/scheme/pty/{}", self.id);
+        Ok(buf.position().try_into().unwrap_or(usize::MAX))
     }
 
     pub fn input(&mut self, buf: &[u8]) {

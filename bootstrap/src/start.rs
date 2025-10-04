@@ -1,7 +1,7 @@
 use syscall::flag::MapFlags;
 
 mod offsets {
-    extern "C" {
+    unsafe extern "C" {
         // text (R-X)
         static __text_start: u8;
         static __text_end: u8;
@@ -38,7 +38,7 @@ mod offsets {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn start() -> ! {
     // Remap self, from the previous RWX
 

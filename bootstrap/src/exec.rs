@@ -58,7 +58,7 @@ pub fn main() -> ! {
         iter().map(|var| var.to_owned()).collect::<Vec<_>>()
     };
 
-    extern "C" {
+    unsafe extern "C" {
         // The linker script will define this as the location of the initfs header.
         static __initfs_header: u8;
     }

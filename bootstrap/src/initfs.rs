@@ -344,22 +344,22 @@ pub fn run(bytes: &'static [u8], sync_pipe: usize) -> ! {
 // TODO: Restructure bootstrap so it calls into relibc, or a split-off derivative without the C
 // parts, such as "redox-rt".
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn redox_read_v1(fd: usize, ptr: *mut u8, len: usize) -> isize {
     Error::mux(syscall::read(fd, core::slice::from_raw_parts_mut(ptr, len))) as isize
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn redox_write_v1(fd: usize, ptr: *const u8, len: usize) -> isize {
     Error::mux(syscall::write(fd, core::slice::from_raw_parts(ptr, len))) as isize
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn redox_open_v1(ptr: *const u8, len: usize, flags: usize) -> isize {
     Error::mux(syscall::open(core::str::from_raw_parts(ptr, len), flags)) as isize
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn redox_close_v1(fd: usize) -> isize {
     Error::mux(syscall::close(fd)) as isize
 }

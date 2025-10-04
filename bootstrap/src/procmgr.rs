@@ -228,14 +228,14 @@ fn handle_scheme<'a>(
                     awoken,
                 ),
                 Op::Fsize { req, fd } => {
-                    if let Handle::Ps(ref b) = &scheme.handles[fd] {
+                    if let Handle::Ps(b) = &scheme.handles[fd] {
                         Response::ready_ok(b.len(), req)
                     } else {
                         Response::ready_err(EOPNOTSUPP, req)
                     }
                 }
                 Op::Fstat(mut op) => {
-                    if let Handle::Ps(ref b) = &scheme.handles[op.fd] {
+                    if let Handle::Ps(b) = &scheme.handles[op.fd] {
                         op.buf().st_size = b.len() as _;
                         op.buf().st_mode = syscall::MODE_FILE | 0o444;
                         Response::ready_ok(0, op)

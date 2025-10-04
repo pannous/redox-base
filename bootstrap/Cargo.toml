@@ -2,7 +2,7 @@
 name = "bootstrap"
 version = "0.0.0"
 authors = ["4lDO2 <4lDO2@protonmail.com>"]
-edition = "2021"
+edition = "2024"
 license = "MIT"
 
 [lib]

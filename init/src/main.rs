@@ -190,8 +190,6 @@ pub fn run(file: &Path) -> Result<()> {
                                 Ok(exit_status) => {
                                     if !exit_status.success() {
                                         println!("{cmd} failed with {exit_status}");
-                                    } else {
-                                        println!("{cmd} done.");
                                     }
                                 }
                                 Err(err) => {

@@ -128,6 +128,7 @@ impl DataPacket {
                     let num_fds = read_num::<usize>(data_stream)?;
                     message.ancillary_data.num_fds += num_fds;
                 }
+                (libc::SOL_SOCKET, SCM_CREDENTIALS) => {}
                 _ => {
                     eprintln!(
                         "Message::from_stream: Unsupported cmsg type received. level: {}, type: {}",

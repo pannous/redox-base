@@ -329,7 +329,7 @@ dependencies = [
 [[package]]
 name = "generic-rt"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/Ibuki.O/relibc.git?branch=getpeername#274e8a11eb3312855ebdc1d0228cb89e6abbf538"
+source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#1c6bbf24af2dee5300481d12ae93e88976be4727"
 
 [[package]]
 name = "getrandom"
@@ -757,7 +757,7 @@ dependencies = [
 [[package]]
 name = "redox-rt"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/Ibuki.O/relibc.git?branch=getpeername#274e8a11eb3312855ebdc1d0228cb89e6abbf538"
+source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#1c6bbf24af2dee5300481d12ae93e88976be4727"
 dependencies = [
  "bitflags 2.10.0",
  "generic-rt",
@@ -975,9 +975,9 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "syn"
-version = "2.0.109"
+version = "2.0.110"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f17c7e013e88258aa9543dcbe81aca68a667a9ac37cd69c9fbc07858bfe0e2f"
+checksum = "a99801b5bd34ede4cf3fc688c5919368fea4e4814a4664359503e6015b280aea"
 dependencies = [
  "proc-macro2",
  "quote",

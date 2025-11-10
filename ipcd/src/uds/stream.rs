@@ -283,7 +283,13 @@ impl Socket {
     fn require_connected_connection(&mut self) -> Result<&mut Connection> {
         match self.state {
             State::Established | State::Accepted => self.require_connection(),
-            State::Connecting => Err(Error::new(EWOULDBLOCK)),
+            State::Connecting => {
+                if self.flags & O_NONBLOCK == O_NONBLOCK {
+                    Err(Error::new(EAGAIN))
+                } else {
+                    Err(Error::new(EWOULDBLOCK))
+                }
+            }
             State::Closed => Err(Error::new(EPIPE)),
             _ => Err(Error::new(ENOTCONN)),
         }

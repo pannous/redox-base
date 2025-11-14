@@ -8,8 +8,8 @@ use core::str::FromStr;
 use core::sync::atomic::Ordering;
 use core::task::Poll::{self, *};
 
-use alloc::collections::btree_map::BTreeMap;
 use alloc::collections::VecDeque;
+use alloc::collections::btree_map::BTreeMap;
 use alloc::rc::{Rc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -20,8 +20,8 @@ use hashbrown::{DefaultHashBuilder, HashMap, HashSet};
 
 use redox_rt::proc::FdGuard;
 use redox_rt::protocol::{
-    ProcCall, ProcKillTarget, ProcMeta, RtSigInfo, ThreadCall, WaitFlags, SIGCHLD, SIGCONT, SIGHUP,
-    SIGKILL, SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU,
+    ProcCall, ProcKillTarget, ProcMeta, RtSigInfo, SIGCHLD, SIGCONT, SIGHUP, SIGKILL, SIGSTOP,
+    SIGTSTP, SIGTTIN, SIGTTOU, ThreadCall, WaitFlags,
 };
 use redox_scheme::scheme::{IntoTag, Op, OpCall};
 use redox_scheme::{
@@ -31,11 +31,11 @@ use redox_scheme::{
 use slab::Slab;
 use syscall::schemev2::NewFdFlags;
 use syscall::{
-    sig_bit, ContextStatus, ContextVerb, CtxtStsBuf, Error, Event, EventFlags, FobtainFdFlags,
-    MapFlags, ProcSchemeAttrs, Result, SenderInfo, SetSighandlerData, SigProcControl, Sigcontrol,
-    EACCES, EAGAIN, EBADF, EBADFD, ECANCELED, ECHILD, EEXIST, EINTR, EINVAL, ENOENT, ENOSYS,
-    EOPNOTSUPP, EOWNERDEAD, EPERM, ERESTART, ESRCH, EWOULDBLOCK, O_ACCMODE, O_CREAT, O_RDONLY,
-    PAGE_SIZE,
+    ContextStatus, ContextVerb, CtxtStsBuf, EACCES, EAGAIN, EBADF, EBADFD, ECANCELED, ECHILD,
+    EEXIST, EINTR, EINVAL, ENOENT, ENOSYS, EOPNOTSUPP, EOWNERDEAD, EPERM, ERESTART, ESRCH,
+    EWOULDBLOCK, Error, Event, EventFlags, FobtainFdFlags, MapFlags, O_ACCMODE, O_CREAT, O_RDONLY,
+    PAGE_SIZE, ProcSchemeAttrs, Result, SenderInfo, SetSighandlerData, SigProcControl, Sigcontrol,
+    sig_bit,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -77,18 +77,18 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
                     continue;
                 };
                 match scheme.work_on(state, &mut new_awoken) {
-                    Ready(resp) => {
-                        loop {
-                            match socket.write_response(resp, SignalBehavior::Interrupt) {
-                                Ok(false) => break 'outer,
-                                Ok(_) => break,
-                                Err(err) if err.errno == EINTR => continue,
-                                Err(err) => {
-                                    panic!("bootstrap: failed to write scheme response to kernel: {err}")
-                                }
+                    Ready(resp) => loop {
+                        match socket.write_response(resp, SignalBehavior::Interrupt) {
+                            Ok(false) => break 'outer,
+                            Ok(_) => break,
+                            Err(err) if err.errno == EINTR => continue,
+                            Err(err) => {
+                                panic!(
+                                    "bootstrap: failed to write scheme response to kernel: {err}"
+                                )
                             }
                         }
-                    }
+                    },
                     Pending => continue,
                 }
             }
@@ -141,7 +141,7 @@ pub fn run(write_fd: usize, auth: &FdGuard) {
             let mut proc = proc_rc.borrow_mut();
             log::trace!("THREAD EVENT FROM {}, {}", event.data, thread.pid.0);
             let mut sts_buf = CtxtStsBuf::default();
-            let _ = syscall::read(*thread.status_hndl, &mut sts_buf).unwrap();
+            thread.status_hndl.read(&mut sts_buf).unwrap();
 
             let status = if sts_buf.status == ContextStatus::Dead as usize {
                 // dont-care, already called explicit exit()
@@ -333,7 +333,7 @@ impl<T> Page<T> {
             off: displacement,
             ptr: NonNull::new(unsafe {
                 syscall::fmap(
-                    **fd,
+                    fd.as_raw_fd(),
                     &syscall::Map {
                         offset: req_offset,
                         size: PAGE_SIZE,
@@ -537,19 +537,14 @@ enum WaitpidTarget {
 struct RawEventQueue(FdGuard);
 impl RawEventQueue {
     pub fn new() -> Result<Self> {
-        syscall::open("/scheme/event", O_CREAT)
-            .map(FdGuard::new)
-            .map(Self)
+        FdGuard::open("/scheme/event", O_CREAT).map(Self)
     }
     pub fn subscribe(&self, fd: usize, ident: usize, flags: EventFlags) -> Result<()> {
-        let _ = syscall::write(
-            *self.0,
-            &Event {
-                id: fd,
-                data: ident,
-                flags,
-            },
-        )?;
+        self.0.write(&Event {
+            id: fd,
+            data: ident,
+            flags,
+        })?;
         Ok(())
     }
     pub fn unsubscribe(&self, fd: usize, ident: usize) -> Result<()> {
@@ -557,7 +552,7 @@ impl RawEventQueue {
     }
     pub fn next_event(&self) -> Result<Event> {
         let mut event = Event::default();
-        let read = syscall::read(*self.0, &mut event)?;
+        let read = self.0.read(&mut event)?;
         assert_eq!(
             read,
             size_of::<Event>(),
@@ -598,15 +593,11 @@ impl<'a> ProcScheme<'a> {
 
                 // TODO: Use global thread id etc. rather than reusing fd for identifier?
                 self.queue
-                    .subscribe(*fd, fd_out, EventFlags::EVENT_READ)
+                    .subscribe(fd_out, fd_out, EventFlags::EVENT_READ)
                     .expect("TODO");
-                let status_hndl = FdGuard::new(
-                    syscall::dup(
-                        *fd,
-                        alloc::format!("auth-{}-status", **self.auth).as_bytes(),
-                    )
-                    .expect("TODO"),
-                );
+                let status_hndl = fd
+                    .dup(alloc::format!("auth-{}-status", self.auth.as_raw_fd()).as_bytes())
+                    .expect("TODO");
 
                 let thread = Rc::new(RefCell::new(Thread {
                     fd,
@@ -677,17 +668,15 @@ impl<'a> ProcScheme<'a> {
             ..
         } = *proc_guard.borrow();
 
-        let new_ctxt_fd = FdGuard::new(syscall::dup(**self.auth, b"new-context")?);
-        let status_fd = FdGuard::new(syscall::dup(
-            *new_ctxt_fd,
-            alloc::format!("auth-{}-status", **self.auth).as_bytes(),
-        )?);
+        let new_ctxt_fd = self.auth.dup(b"new-context")?;
+        let status_fd =
+            new_ctxt_fd.dup(alloc::format!("auth-{}-status", self.auth.as_raw_fd()).as_bytes())?;
 
+        let thread_ident = new_ctxt_fd.as_raw_fd();
         self.queue
-            .subscribe(*new_ctxt_fd, *new_ctxt_fd, EventFlags::EVENT_READ)
+            .subscribe(thread_ident, thread_ident, EventFlags::EVENT_READ)
             .expect("TODO");
 
-        let thread_ident = *new_ctxt_fd;
         let thread = Rc::new(RefCell::new(Thread {
             fd: new_ctxt_fd,
             status_hndl: status_fd,
@@ -744,34 +733,27 @@ impl<'a> ProcScheme<'a> {
         let proc_rc = self.processes.get_mut(&pid).ok_or(Error::new(EBADFD))?;
         let mut proc = proc_rc.borrow_mut();
 
-        let ctxt_fd = FdGuard::new(syscall::dup(**self.auth, b"new-context")?);
+        let ctxt_fd = self.auth.dup(b"new-context")?;
 
         // TODO: sync_kernel_attrs?
-        let attr_fd = FdGuard::new(syscall::dup(
-            *ctxt_fd,
-            alloc::format!("auth-{}-attrs", **self.auth).as_bytes(),
-        )?);
-        let _ = syscall::write(
-            *attr_fd,
-            &ProcSchemeAttrs {
-                pid: pid.0 as u32,
-                euid: proc.euid,
-                egid: proc.egid,
-                ens: proc.ens,
-                debug_name: arraystring_to_bytes(proc.name),
-            },
-        )?;
+        let attr_fd =
+            ctxt_fd.dup(alloc::format!("auth-{}-attrs", self.auth.as_raw_fd()).as_bytes())?;
+        attr_fd.write(&ProcSchemeAttrs {
+            pid: pid.0 as u32,
+            euid: proc.euid,
+            egid: proc.egid,
+            ens: proc.ens,
+            debug_name: arraystring_to_bytes(proc.name),
+        })?;
 
-        let status_hndl = FdGuard::new(syscall::dup(
-            *ctxt_fd,
-            alloc::format!("auth-{}-status", **self.auth).as_bytes(),
-        )?);
+        let status_hndl =
+            ctxt_fd.dup(alloc::format!("auth-{}-status", self.auth.as_raw_fd()).as_bytes())?;
 
+        let ident = ctxt_fd.as_raw_fd();
         self.queue
-            .subscribe(*ctxt_fd, *ctxt_fd, EventFlags::EVENT_READ)
+            .subscribe(ident, ident, EventFlags::EVENT_READ)
             .expect("TODO");
 
-        let ident = *ctxt_fd;
         let thread = Rc::new(RefCell::new(Thread {
             fd: ctxt_fd,
             status_hndl,
@@ -852,7 +834,7 @@ impl<'a> ProcScheme<'a> {
                 Ok(len)
             }
             Handle::Init | Handle::Thread(_) | Handle::ProcCredsCapability => {
-                return Err(Error::new(EBADF))
+                return Err(Error::new(EBADF));
             }
         }
     }
@@ -897,7 +879,7 @@ impl<'a> ProcScheme<'a> {
                 // By forwarding all dup calls to the kernel, this fd is now effectively the same
                 // as the underlying fd since that fd can't do anything itself.
                 Ok(OpenResult::OtherScheme {
-                    fd: syscall::dup(*thread.fd, buf)?,
+                    fd: thread.fd.dup(buf)?.take(),
                 })
             }
             Handle::Init | Handle::Ps(_) | Handle::ProcCredsCapability => Err(Error::new(EBADF)),
@@ -938,11 +920,7 @@ impl<'a> ProcScheme<'a> {
                     return Response::ready_err(EINVAL, op);
                 };
                 fn cvt_u32(u: u32) -> Option<u32> {
-                    if u == u32::MAX {
-                        None
-                    } else {
-                        Some(u)
-                    }
+                    if u == u32::MAX { None } else { Some(u) }
                 }
                 match verb {
                     ProcCall::Setrens => Ready(Response::new(
@@ -1305,14 +1283,14 @@ impl<'a> ProcScheme<'a> {
                     Response::ready_err(EAGAIN, tag)
                 } else {
                     Pending
-                }
+                };
             }
             ProcessStatus::Exited { .. } => {
                 return if let Some(tag) = tag {
                     Response::ready_err(ESRCH, tag)
                 } else {
                     Pending
-                }
+                };
             }
         }
 
@@ -1344,7 +1322,7 @@ impl<'a> ProcScheme<'a> {
             for thread in &process.threads {
                 let thread = thread.borrow_mut();
                 // TODO: cancel all threads anyway on error?
-                if let Err(err) = syscall::write(*thread.status_hndl, &usize::MAX.to_ne_bytes()) {
+                if let Err(err) = thread.status_hndl.write(&usize::MAX.to_ne_bytes()) {
                     if let Some(tag) = tag {
                         return Response::ready_err(err.errno, tag);
                     }
@@ -1714,7 +1692,7 @@ impl<'a> ProcScheme<'a> {
                             } else {
                                 state_entry.remove();
                                 Pending
-                            }
+                            };
                         }
                         _ => {
                             return if let Some(tag) = tag {
@@ -1797,7 +1775,9 @@ impl<'a> ProcScheme<'a> {
                                             false,
                                             awoken,
                                         ) {
-                                            log::warn!("Failed to send newly-orphaned-pgid SIGHUP to PID {sighup_pid:?}: {err}");
+                                            log::warn!(
+                                                "Failed to send newly-orphaned-pgid SIGHUP to PID {sighup_pid:?}: {err}"
+                                            );
                                         }
                                         log::trace!("SENDING SIGHUP TO {sighup_pid:?}");
                                         if let Err(err) = self.on_send_sig(
@@ -1809,7 +1789,9 @@ impl<'a> ProcScheme<'a> {
                                             false,
                                             awoken,
                                         ) {
-                                            log::warn!("Failed to send newly-orphaned-pgid SIGHUP to PID {sighup_pid:?}: {err}");
+                                            log::warn!(
+                                                "Failed to send newly-orphaned-pgid SIGHUP to PID {sighup_pid:?}: {err}"
+                                            );
                                         }
                                     }
                                 }
@@ -2115,11 +2097,10 @@ impl<'a> ProcScheme<'a> {
                             Ordering::Relaxed,
                         );
                     }
-                    let _ = syscall::write(
-                        *thread.status_hndl,
-                        &(ContextVerb::Unstop as usize).to_ne_bytes(),
-                    )
-                    .expect("TODO");
+                    thread
+                        .status_hndl
+                        .write(&(ContextVerb::Unstop as usize).to_ne_bytes())
+                        .expect("TODO");
                 }
                 // POSIX XSI allows but does not reqiure SIGCHLD to be sent when SIGCONT occurs.
                 return SendResult::SucceededSigcont {
@@ -2154,10 +2135,10 @@ impl<'a> ProcScheme<'a> {
 
                 for thread in &target_proc.threads {
                     let thread = thread.borrow();
-                    match syscall::write(
-                        *thread.status_hndl,
-                        &(ContextVerb::Stop as usize).to_ne_bytes(),
-                    ) {
+                    match thread
+                        .status_hndl
+                        .write(&(ContextVerb::Stop as usize).to_ne_bytes())
+                    {
                         Ok(_) => (),
                         // TODO: Write a test that this actually results in the thread eventually
                         // being removed from `threads`. A "dead thread" event should already have
@@ -2167,7 +2148,10 @@ impl<'a> ProcScheme<'a> {
                         // Thread has state Dead, so ignore.
                         Err(Error { errno: EOWNERDEAD }) => continue,
                         Err(other) => {
-                            log::error!("Unexpected error when stopping context: {other}, pid {target_pid:?} thread fd {}", *thread.status_hndl);
+                            log::error!(
+                                "Unexpected error when stopping context: {other}, pid {target_pid:?} thread fd {}",
+                                thread.status_hndl.as_raw_fd()
+                            );
                             continue;
                         }
                     }
@@ -2191,11 +2175,10 @@ impl<'a> ProcScheme<'a> {
             if sig == SIGKILL {
                 for thread in &target_proc.threads {
                     let thread = thread.borrow();
-                    let _ = syscall::write(
-                        *thread.status_hndl,
-                        &(ContextVerb::ForceKill as usize).to_ne_bytes(),
-                    )
-                    .expect("TODO");
+                    thread
+                        .status_hndl
+                        .write(&(ContextVerb::ForceKill as usize).to_ne_bytes())
+                        .expect("TODO");
                 }
 
                 *killed_self |= is_self;
@@ -2218,11 +2201,10 @@ impl<'a> ProcScheme<'a> {
                         let _was_new = tctl.word[sig_group].fetch_or(bit, Ordering::Release);
                         if (tctl.word[sig_group].load(Ordering::Relaxed) >> 32) & bit != 0 {
                             *killed_self |= is_self;
-                            let _ = syscall::write(
-                                *thread.status_hndl,
-                                &(ContextVerb::Interrupt as usize).to_ne_bytes(),
-                            )
-                            .expect("TODO");
+                            thread
+                                .status_hndl
+                                .write(&(ContextVerb::Interrupt as usize).to_ne_bytes())
+                                .expect("TODO");
                         }
                     }
                     KillTarget::Proc(proc) => {
@@ -2279,11 +2261,10 @@ impl<'a> ProcScheme<'a> {
                             if (tctl.word[sig_group].load(Ordering::Relaxed) >> 32) & sig_bit(sig)
                                 != 0
                             {
-                                let _ = syscall::write(
-                                    *thread.status_hndl,
-                                    &(ContextVerb::Interrupt as usize).to_ne_bytes(),
-                                )
-                                .expect("TODO");
+                                thread
+                                    .status_hndl
+                                    .write(&(ContextVerb::Interrupt as usize).to_ne_bytes())
+                                    .expect("TODO");
                                 *killed_self |= is_self;
                                 break;
                             }
@@ -2390,7 +2371,7 @@ impl<'a> ProcScheme<'a> {
     }
     fn real_tctl_pctl_intra_page_offsets(fd: &FdGuard) -> Result<[u16; 2]> {
         let mut buf = SetSighandlerData::default();
-        let _ = syscall::read(**fd, &mut buf)?;
+        fd.read(&mut buf)?;
         Ok([
             (buf.thread_control_addr % PAGE_SIZE) as u16,
             (buf.proc_control_addr % PAGE_SIZE) as u16,
@@ -2418,7 +2399,7 @@ impl<'a> ProcScheme<'a> {
     }
     fn on_sync_sigtctl(thread: &mut Thread) -> Result<()> {
         log::trace!("Sync tctl {:?}", thread.pid);
-        let sigcontrol_fd = FdGuard::new(syscall::dup(*thread.fd, b"sighandler")?);
+        let sigcontrol_fd = thread.fd.dup(b"sighandler")?;
         let [tctl_off, _] = Self::real_tctl_pctl_intra_page_offsets(&sigcontrol_fd)?;
         log::trace!("read intra offsets");
         thread
@@ -2434,7 +2415,7 @@ impl<'a> ProcScheme<'a> {
             .ok_or(Error::new(ESRCH))?
             .borrow_mut();
         let any_thread = proc.threads.first().ok_or(Error::new(EINVAL))?;
-        let sigcontrol_fd = FdGuard::new(syscall::dup(*any_thread.borrow().fd, b"sighandler")?);
+        let sigcontrol_fd = any_thread.borrow().fd.dup(b"sighandler")?;
         let [_, pctl_off] = Self::real_tctl_pctl_intra_page_offsets(&sigcontrol_fd)?;
         proc.sig_pctl
             .replace(Page::map(&sigcontrol_fd, PAGE_SIZE, pctl_off)?);
@@ -2597,20 +2578,16 @@ impl Process {
         // TODO: continue with other threads if one fails?
         for thread_rc in &self.threads {
             let thread = thread_rc.borrow();
-            let attr_fd = FdGuard::new(syscall::dup(
-                *thread.fd,
-                alloc::format!("auth-{}-attrs", **auth).as_bytes(),
-            )?);
-            let _ = syscall::write(
-                *attr_fd,
-                &ProcSchemeAttrs {
-                    pid: my_pid.0 as u32,
-                    euid: self.euid,
-                    egid: self.egid,
-                    ens: self.ens,
-                    debug_name: arraystring_to_bytes(self.name),
-                },
-            )?;
+            let attr_fd = thread
+                .fd
+                .dup(alloc::format!("auth-{}-attrs", auth.as_raw_fd()).as_bytes())?;
+            attr_fd.write(&ProcSchemeAttrs {
+                pid: my_pid.0 as u32,
+                euid: self.euid,
+                egid: self.egid,
+                ens: self.ens,
+                debug_name: arraystring_to_bytes(self.name),
+            })?;
         }
         Ok(())
     }

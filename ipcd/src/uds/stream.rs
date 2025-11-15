@@ -797,7 +797,6 @@ impl<'sock> UdsStreamScheme<'sock> {
     fn handle_get_peer_name(&self, id: usize, payload: &mut [u8]) -> Result<usize> {
         let (_, socket_rc) = self.get_connected_peer(id)?;
         let socket_borrow = socket_rc.borrow();
-        eprintln!("getpeername {} {:?}", id, socket_borrow.path);
         match socket_borrow.path.as_ref() {
             Some(path_string) => Self::fpath_inner(path_string, payload),
             None => {

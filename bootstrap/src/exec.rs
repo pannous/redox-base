@@ -2,7 +2,7 @@ use alloc::borrow::ToOwned;
 use alloc::vec::Vec;
 
 use syscall::flag::{O_CLOEXEC, O_RDONLY};
-use syscall::{Error, EINTR};
+use syscall::{EINTR, Error};
 
 use redox_rt::proc::*;
 
@@ -26,12 +26,13 @@ impl log::Log for Logger {
 }
 
 pub fn main() -> ! {
-    let auth = FdGuard::new(
-        syscall::open("/scheme/kernel.proc/authority", O_CLOEXEC)
-            .expect("failed to get proc authority"),
-    );
-    let this_thr_fd =
-        FdGuard::new(syscall::dup(*auth, b"cur-context").expect("failed to open open_via_dup"));
+    let auth = FdGuard::open("/scheme/kernel.proc/authority", O_CLOEXEC)
+        .expect("failed to get proc authority");
+    let this_thr_fd = auth
+        .dup(b"cur-context")
+        .expect("failed to open open_via_dup")
+        .to_upper()
+        .unwrap();
     let this_thr_fd = unsafe { redox_rt::initialize_freestanding(this_thr_fd) };
 
     log::set_max_level(log::LevelFilter::Warn);
@@ -40,10 +41,8 @@ pub fn main() -> ! {
     let envs = {
         let mut env = [0_u8; 4096];
 
-        let fd = FdGuard::new(
-            syscall::open("/scheme/sys/env", O_RDONLY).expect("bootstrap: failed to open env"),
-        );
-        let bytes_read = syscall::read(*fd, &mut env).expect("bootstrap: failed to read env");
+        let fd = FdGuard::open("/scheme/sys/env", O_RDONLY).expect("bootstrap: failed to open env");
+        let bytes_read = fd.read(&mut env).expect("bootstrap: failed to read env");
 
         if bytes_read >= env.len() {
             // TODO: Handle this, we can allocate as much as we want in theory.
@@ -87,7 +86,7 @@ pub fn main() -> ! {
     spawn("process manager", &auth, &this_thr_fd, |write_fd| {
         crate::procmgr::run(write_fd, &auth)
     });
-    let [init_proc_fd, init_thr_fd] = unsafe { redox_rt::proc::make_init() };
+    let (init_proc_fd, init_thr_fd) = unsafe { redox_rt::proc::make_init() };
     // from this point, this_thr_fd is no longer valid
 
     const CWD: &[u8] = b"/scheme/initfs";
@@ -98,8 +97,8 @@ pub fn main() -> ! {
         sigprocmask: 0,
         sigignmask: 0,
         umask: redox_rt::sys::get_umask(),
-        thr_fd: **init_thr_fd,
-        proc_fd: **init_proc_fd,
+        thr_fd: init_thr_fd.as_raw_fd(),
+        proc_fd: init_proc_fd.as_raw_fd(),
     };
 
     let path = "/scheme/initfs/bin/init";
@@ -112,8 +111,14 @@ pub fn main() -> ! {
         + DEFAULT_SCHEME.len()
         + 1;
 
-    let image_file = FdGuard::new(syscall::open(path, O_RDONLY).expect("failed to open init"));
-    let memory = FdGuard::new(syscall::open("/scheme/memory", 0).expect("failed to open memory"));
+    let image_file = FdGuard::open(path, O_RDONLY)
+        .expect("failed to open init")
+        .to_upper()
+        .unwrap();
+    let memory = FdGuard::open("/scheme/memory", 0)
+        .expect("failed to open memory")
+        .to_upper()
+        .unwrap();
 
     fexec_impl(
         image_file,
@@ -132,7 +137,12 @@ pub fn main() -> ! {
     unreachable!()
 }
 
-pub(crate) fn spawn(name: &str, auth: &FdGuard, this_thr_fd: &FdGuard, inner: impl FnOnce(usize)) {
+pub(crate) fn spawn(
+    name: &str,
+    auth: &FdGuard,
+    this_thr_fd: &FdGuardUpper,
+    inner: impl FnOnce(usize),
+) {
     let read = syscall::open("/scheme/pipe", O_CLOEXEC).expect("failed to open sync read pipe");
 
     // The write pipe will not inherit O_CLOEXEC, but is closed by the daemon later.

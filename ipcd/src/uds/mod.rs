@@ -291,7 +291,7 @@ impl<'a> MsgWriter<'a> {
                 name_buf_size,
                 self.buffer.len() - self.written_len - mem::size_of::<usize>(),
             );
-            if copy_len < name.len() {
+            if name_buf_size > 0 && copy_len < name.len() {
                 eprintln!("MsgWriter::write_name: Name will be truncated. Full length: {}, buffer available: {}", name.len(), copy_len);
             }
             let name_len = name_write_fn(

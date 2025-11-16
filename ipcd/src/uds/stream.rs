@@ -56,6 +56,10 @@ impl Connection {
         Ok(())
     }
 
+    fn can_read(&self) -> bool {
+        !self.packets.is_empty() || !self.fds.is_empty() || self.is_peer_shutdown
+    }
+
     fn serialize_to_msgstream(
         &mut self,
         stream: &mut [u8],
@@ -208,6 +212,27 @@ impl Socket {
         }
     }
 
+    fn events(&self) -> EventFlags {
+        let mut ready = EventFlags::empty();
+        if let Some(connection) = &self.connection {
+            if connection.can_read() {
+                ready |= EVENT_READ;
+            }
+            //TODO: block on write buffer
+            ready |= EVENT_WRITE;
+        }
+        match self.state {
+            State::Listening => if !self.awaiting.is_empty() {
+                ready |= EVENT_READ;
+            },
+            State::Closed => {
+                ready |= EVENT_READ;
+            },
+            _ => {}
+        }
+        ready
+    }
+
     fn accept(
         &mut self,
         primary_id: usize,
@@ -355,8 +380,14 @@ impl<'sock> UdsStreamScheme<'sock> {
         })
     }
 
-    fn post_fevent(&self, id: usize, flags: usize) -> Result<()> {
-        let fevent_response = Response::post_fevent(id, flags);
+    fn post_fevent(&self, id: usize, mut flags: EventFlags) -> Result<()> {
+        /*TODO: filter out unnecessary flags?
+        if let Ok(socket_rc) = self.get_socket(id) {
+            let socket = socket_rc.borrow();
+            let socket_flags = socket.events();
+        }
+        */
+        let fevent_response = Response::post_fevent(id, flags.bits());
         match self
             .socket
             .write_response(fevent_response, SignalBehavior::Restart)
@@ -564,7 +595,7 @@ impl<'sock> UdsStreamScheme<'sock> {
         // smoltcp sends writeable whenever a listener gets a
         // client, we'll do the same too (but also readable, why
         // not)
-        self.post_fevent(listener_id, (EVENT_READ | EVENT_WRITE).bits())?;
+        self.post_fevent(listener_id, EVENT_READ | EVENT_WRITE)?;
 
         // Blocking pattern
         if flags & O_NONBLOCK == 0 {
@@ -652,18 +683,21 @@ impl<'sock> UdsStreamScheme<'sock> {
             return Err(Error::new(EINVAL));
         }
 
-        let name = self.get_socket(id)?.borrow().path.clone();
-        let (remote_id, remote_rc) = self.get_connected_peer(id)?;
+        let (bytes_written, remote_id) = {
+            let name = self.get_socket(id)?.borrow().path.clone();
+            let (remote_id, remote_rc) = self.get_connected_peer(id)?;
 
-        let bytes_written = Self::sendmsg_inner(
-            self.proc_creds_capability,
-            &mut remote_rc.borrow_mut(),
-            name,
-            msg_flags,
-            msg_stream,
-            ctx,
-        )?;
-        self.post_fevent(remote_id, EVENT_READ.bits())?;
+            let bytes_written = Self::sendmsg_inner(
+                self.proc_creds_capability,
+                &mut remote_rc.borrow_mut(),
+                name,
+                msg_flags,
+                msg_stream,
+                ctx,
+            )?;
+            (bytes_written, remote_id)
+        };
+        self.post_fevent(remote_id, EVENT_READ)?;
         Ok(bytes_written)
     }
 
@@ -826,7 +860,7 @@ impl<'sock> UdsStreamScheme<'sock> {
 
         self.next_id += 1;
         self.sockets.insert(new_id, Rc::new(RefCell::new(new)));
-        self.post_fevent(client_id, (EVENT_READ | EVENT_WRITE).bits())?;
+        self.post_fevent(client_id, EVENT_READ | EVENT_WRITE)?;
         Ok(Some(OpenResult::ThisScheme {
             number: new_id,
             flags: NewFdFlags::empty(),
@@ -928,7 +962,7 @@ impl<'sock> UdsStreamScheme<'sock> {
         // smoltcp sends writeable whenever a listener gets a
         // client, we'll do the same too (but also readable,
         // why not)
-        self.post_fevent(id, (EVENT_READ | EVENT_WRITE).bits())?;
+        self.post_fevent(id, EVENT_READ | EVENT_WRITE)?;
 
         self.sockets.insert(new_id, Rc::new(RefCell::new(new)));
 
@@ -957,22 +991,25 @@ impl<'sock> UdsStreamScheme<'sock> {
     }
 
     fn write_inner(&mut self, receiver_id: usize, buf: &[u8], ctx: &CallerCtx) -> Result<usize> {
-        let receiver_rc = self.get_socket(receiver_id)?;
-        let mut receiver = receiver_rc.borrow_mut();
-        let name = receiver.path.clone();
+        {
+            let receiver_rc = self.get_socket(receiver_id)?;
+            let mut receiver = receiver_rc.borrow_mut();
+            let name = receiver.path.clone();
 
-        let connection = receiver.require_connected_connection(MsgFlags::default())?;
+            let connection = receiver.require_connected_connection(MsgFlags::default())?;
 
-        if !buf.is_empty() {
-            // Send readable only if it wasn't readable before
-            let ancillary_data = AncillaryData::new(
-                Credential::new(ctx.pid as i32, ctx.uid as i32, ctx.gid as i32),
-                name,
-            );
-            let packet = DataPacket::new(buf.to_vec(), ancillary_data);
-            connection.packets.push_back(packet);
-            self.post_fevent(receiver_id, EVENT_READ.bits())?;
+            if !buf.is_empty() {
+                // Send readable only if it wasn't readable before
+                let ancillary_data = AncillaryData::new(
+                    Credential::new(ctx.pid as i32, ctx.uid as i32, ctx.gid as i32),
+                    name,
+                );
+                let packet = DataPacket::new(buf.to_vec(), ancillary_data);
+                connection.packets.push_back(packet);
+            }
         }
+
+        self.post_fevent(receiver_id, EVENT_READ)?;
 
         Ok(buf.len())
     }
@@ -990,15 +1027,17 @@ impl<'sock> UdsStreamScheme<'sock> {
             eprintln!("sendfd_inner: obtain_fd failed with error: {:?}", e);
             return Err(e);
         }
-        let receiver_rc = self.get_socket(receiver_id)?;
-        let mut receiver = receiver_rc.borrow_mut();
+        {
+            let receiver_rc = self.get_socket(receiver_id)?;
+            let mut receiver = receiver_rc.borrow_mut();
 
-        let connection = receiver.require_connected_connection(MsgFlags::default())?;
-        for new_fd in &new_fds {
-            connection.fds.push_back(*new_fd);
+            let connection = receiver.require_connected_connection(MsgFlags::default())?;
+            for new_fd in &new_fds {
+                connection.fds.push_back(*new_fd);
+            }
         }
 
-        self.post_fevent(receiver_id, EVENT_READ.bits())?;
+        self.post_fevent(receiver_id, EVENT_READ)?;
 
         Ok(new_fds.len())
     }
@@ -1101,11 +1140,11 @@ impl<'sock> UdsStreamScheme<'sock> {
         // Notify all waiting clients about listener closure
         for client_id in &socket.awaiting {
             if let Ok(client_rc) = self.get_socket(*client_id) {
-                let mut client = client_rc.borrow_mut();
-                client.state = State::Closed;
-                let _ = self.post_fevent(*client_id, EVENT_READ.bits());
-
-                drop(client);
+                {
+                    let mut client = client_rc.borrow_mut();
+                    client.state = State::Closed;
+                }
+                let _ = self.post_fevent(*client_id, EVENT_READ);
             }
         }
     }
@@ -1120,12 +1159,15 @@ impl<'sock> UdsStreamScheme<'sock> {
             let Ok(remote_rc) = self.get_socket(connection.peer) else {
                 return;
             };
-            let mut remote = remote_rc.borrow_mut();
-            let Ok(connection) = remote.require_connection() else {
-                return;
+            let remote_id = {
+                let mut remote = remote_rc.borrow_mut();
+                let Ok(connection) = remote.require_connection() else {
+                    return;
+                };
+                connection.is_peer_shutdown = true;
+                remote.primary_id
             };
-            connection.is_peer_shutdown = true;
-            let _ = self.post_fevent(remote.primary_id, EVENT_READ.bits());
+            let _ = self.post_fevent(remote_id, EVENT_READ);
         }
 
         if let Some(path) = socket.path.take() {
@@ -1279,19 +1321,8 @@ impl<'sock> SchemeSync for UdsStreamScheme<'sock> {
 
     fn fevent(&mut self, id: usize, flags: EventFlags, ctx: &CallerCtx) -> Result<EventFlags> {
         let socket_rc = self.get_socket(id)?;
-        let mut socket = socket_rc.borrow_mut();
-
-        let mut ready = EventFlags::empty();
-        if let Some(connection) = &socket.connection {
-            if flags.contains(EVENT_READ) && !connection.packets.is_empty() {
-                ready |= EVENT_READ;
-            }
-            if flags.contains(EVENT_WRITE) {
-                ready |= EVENT_WRITE;
-            }
-        }
-
-        Ok(ready)
+        let socket = socket_rc.borrow();
+        Ok(socket.events() & flags)
     }
 
     fn fstat(&mut self, id: usize, stat: &mut Stat, ctx: &CallerCtx) -> Result<()> {

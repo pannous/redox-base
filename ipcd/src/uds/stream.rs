@@ -5,7 +5,7 @@ use super::{
     DataPacket, MsgWriter, MIN_RECV_MSG_LEN,
 };
 
-use libc::{ucred, AF_UNIX, SO_DOMAIN, SO_PASSCRED, SO_PEERCRED};
+use libc::{ucred, AF_UNIX};
 use rand::prelude::*;
 use redox_rt::protocol::SocketCall;
 use redox_scheme::{
@@ -18,6 +18,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     mem, ptr,
     rc::Rc,
+    slice,
 };
 use syscall::{error::*, flag::*, schemev2::NewFdFlags, Error, Stat};
 
@@ -126,7 +127,7 @@ impl Connection {
 
         for option in options {
             let result = match option {
-                SO_PASSCRED => {
+                libc::SO_PASSCRED => {
                     let mut success = true;
                     for data in &ancillary_data_buffer {
                         if !msg_writer.write_credentials(&data.cred) {
@@ -222,12 +223,14 @@ impl Socket {
             ready |= EVENT_WRITE;
         }
         match self.state {
-            State::Listening => if !self.awaiting.is_empty() {
-                ready |= EVENT_READ;
-            },
+            State::Listening => {
+                if !self.awaiting.is_empty() {
+                    ready |= EVENT_READ;
+                }
+            }
             State::Closed => {
                 ready |= EVENT_READ;
-            },
+            }
             _ => {}
         }
         ready
@@ -611,12 +614,12 @@ impl<'sock> UdsStreamScheme<'sock> {
         let mut socket = socket_rc.borrow_mut();
 
         match option {
-            SO_PASSCRED => {
+            libc::SO_PASSCRED => {
                 let value = read_num::<i32>(value_slice)?;
                 if value != 0 {
-                    socket.options.insert(SO_PASSCRED);
+                    socket.options.insert(libc::SO_PASSCRED);
                 } else {
-                    socket.options.remove(&SO_PASSCRED);
+                    socket.options.remove(&libc::SO_PASSCRED);
                 }
                 Ok(value_slice.len())
             }
@@ -631,35 +634,37 @@ impl<'sock> UdsStreamScheme<'sock> {
     }
 
     fn handle_getsockopt(&mut self, id: usize, option: i32, payload: &mut [u8]) -> Result<usize> {
-        match option {
-            SO_DOMAIN => {
-                payload.fill(0);
-                if payload.len() < mem::size_of::<i32>() {
-                    eprintln!(
-                        "socket_getsockopt(id: {}): SO_DOMAIN payload buffer is too small. len: {}",
-                        id,
-                        payload.len()
-                    );
-                    return Err(Error::new(ENOBUFS));
-                }
-                let domain = AF_UNIX.to_le_bytes();
-                payload[..domain.len()].copy_from_slice(&domain);
-                Ok(domain.len())
+        let mut write_value = |value: &[u8]| -> Result<usize> {
+            if payload.len() < value.len() {
+                eprintln!(
+                    "socket_getsockopt(id: {}, option: {}): payload buffer is too small. len: {} < {}",
+                    id,
+                    option,
+                    payload.len(),
+                    value.len()
+                );
+                return Err(Error::new(ENOBUFS));
             }
-            SO_PEERCRED => {
+            payload.fill(0);
+            payload[..value.len()].copy_from_slice(&value);
+            Ok(value.len())
+        };
+        match option {
+            libc::SO_DOMAIN => write_value(&AF_UNIX.to_le_bytes()),
+            libc::SO_PEERCRED => {
                 let (_, remote_rc) = self.get_connected_peer(id)?;
-                let mut remote = remote_rc.borrow_mut();
-                payload.fill(0);
-                if payload.len() < mem::size_of::<ucred>() {
-                    eprintln!(
-                        "socket_getsockopt(id: {}): SO_PEERCRED payload buffer is too small. len: {}",
-                        id,
-                        payload.len()
-                    );
-                    return Err(Error::new(ENOBUFS));
-                }
-                unsafe { ptr::write(payload.as_mut_ptr() as *mut ucred, remote.ucred) }
-                Ok(mem::size_of::<ucred>())
+                let remote = remote_rc.borrow();
+                write_value(unsafe {
+                    slice::from_raw_parts(
+                        &remote.ucred as *const ucred as *const u8,
+                        mem::size_of::<ucred>(),
+                    )
+                })
+            }
+            libc::SO_SNDBUF => {
+                //TODO: default value on Linux, should we use something else?
+                let value: libc::c_int = 212992;
+                write_value(&value.to_le_bytes())
             }
             _ => {
                 eprintln!(

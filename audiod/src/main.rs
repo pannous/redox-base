@@ -47,9 +47,12 @@ fn daemon(daemon: Daemon) -> anyhow::Result<()> {
 
     let pid = libredox::call::getpid()?;
 
-    let hw_file = Fd::open("/scheme/audiohw", flag::O_WRONLY | flag::O_CLOEXEC, 0)?;
-
     let socket = Socket::create("audio").context("failed to create scheme")?;
+
+    // The scheme is now ready to accept requests, notify the original process
+    daemon.ready().unwrap();
+
+    let hw_file = Fd::open("/scheme/audiohw", flag::O_WRONLY | flag::O_CLOEXEC, 0)?;
 
     let scheme = Arc::new(Mutex::new(AudioScheme::new()));
 
@@ -66,9 +69,6 @@ fn daemon(daemon: Daemon) -> anyhow::Result<()> {
         libredox::call::setrens(ns, ns).unwrap();
         thread(scheme_thread, pid, hw_file)
     });
-
-    // The scheme is now ready to accept requests, notify the original process
-    daemon.ready().unwrap();
 
     let mut readiness = ReadinessBased::new(&socket, 16);
 

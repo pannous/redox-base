@@ -19,7 +19,7 @@ fn main() {
     println!(" + sb16 at 0x{:X}\n", addr);
 
     // Daemonize
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         common::setup_logging(
             "audio",
             "pci",

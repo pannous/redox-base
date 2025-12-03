@@ -13,7 +13,7 @@ mod aml_physmem;
 
 mod scheme;
 
-fn daemon(daemon: redox_daemon::Daemon) -> ! {
+fn daemon(daemon: daemon::Daemon) -> ! {
     common::setup_logging(
         "misc",
         "acpi",
@@ -144,5 +144,5 @@ fn daemon(daemon: redox_daemon::Daemon) -> ! {
 }
 
 fn main() {
-    redox_daemon::Daemon::new(daemon).expect("acpid: failed to daemonize");
+    daemon::Daemon::new(daemon).expect("acpid: failed to daemonize");
 }

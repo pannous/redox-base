@@ -18,10 +18,10 @@ use crate::ide::{AtaCommand, AtaDisk, Channel};
 pub mod ide;
 
 fn main() {
-    redox_daemon::Daemon::new(daemon).expect("ided: failed to daemonize");
+    daemon::Daemon::new(daemon).expect("ided: failed to daemonize");
 }
 
-fn daemon(daemon: redox_daemon::Daemon) -> ! {
+fn daemon(daemon: daemon::Daemon) -> ! {
     let pcid_handle = PciFunctionHandle::connect_default();
 
     let pci_config = pcid_handle.config();

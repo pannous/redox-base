@@ -29,7 +29,7 @@ fn main() {
 
     log::info!("E1000 {}", pci_config.func.display());
 
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         let mut irq_file = irq.irq_handle("e1000d");
 
         let address = unsafe { pcid_handle.map_bar(0) }.ptr.as_ptr() as usize;

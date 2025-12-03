@@ -23,7 +23,7 @@ QEMU ICH9    8086:293E
 82801H ICH8  8086:284B
 */
 
-fn daemon(daemon: redox_daemon::Daemon) -> ! {
+fn daemon(daemon: daemon::Daemon) -> ! {
     let mut pcid_handle = PciFunctionHandle::connect_default();
 
     let pci_config = pcid_handle.config();
@@ -141,5 +141,5 @@ fn daemon(daemon: redox_daemon::Daemon) -> ! {
 
 fn main() {
     // Daemonize
-    redox_daemon::Daemon::new(daemon).expect("ihdad: failed to daemonize");
+    daemon::Daemon::new(daemon).expect("ihdad: failed to daemonize");
 }

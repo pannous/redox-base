@@ -21,9 +21,9 @@ use crate::scheme::FbbootlogScheme;
 mod scheme;
 
 fn main() {
-    redox_daemon::Daemon::new(|daemon| inner(daemon)).expect("failed to create daemon");
+    daemon::Daemon::new(|daemon| inner(daemon)).expect("failed to create daemon");
 }
-fn inner(daemon: redox_daemon::Daemon) -> ! {
+fn inner(daemon: daemon::Daemon) -> ! {
     let event_queue = EventQueue::new().expect("fbbootlogd: failed to create event queue");
 
     event::user_data! {

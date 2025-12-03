@@ -51,7 +51,7 @@ fn get_network_adapter() -> Result<String> {
     }
 }
 
-fn run(daemon: redox_daemon::Daemon) -> Result<()> {
+fn run(daemon: daemon::Daemon) -> Result<()> {
     let adapter = get_network_adapter()?;
     trace!("opening {adapter}:");
     let network_fd = Fd::open(&format!("/scheme/{adapter}"), O_RDWR | O_NONBLOCK, 0)
@@ -164,7 +164,7 @@ fn run(daemon: redox_daemon::Daemon) -> Result<()> {
 }
 
 fn main() {
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         logger::init_logger("smolnetd");
 
         if let Err(err) = run(daemon) {

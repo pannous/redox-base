@@ -16,7 +16,7 @@ fn main() {
         _ => panic!("needs to be called as either nulld or zerod"),
     };
 
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         let name = match ty {
             Ty::Null => "null",
             Ty::Zero => "zero",

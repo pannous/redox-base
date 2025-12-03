@@ -430,7 +430,7 @@ impl MoveCursor {
 
 static DEVICE: spin::Once<virtio_core::Device> = spin::Once::new();
 
-fn deamon(deamon: redox_daemon::Daemon) -> anyhow::Result<()> {
+fn deamon(deamon: daemon::Daemon) -> anyhow::Result<()> {
     let mut pcid_handle = PciFunctionHandle::connect_default();
 
     // Double check that we have the right device.
@@ -543,8 +543,8 @@ fn deamon(deamon: redox_daemon::Daemon) -> anyhow::Result<()> {
     std::process::exit(0);
 }
 
-fn daemon_runner(redox_daemon: redox_daemon::Daemon) -> ! {
-    deamon(redox_daemon).unwrap();
+fn daemon_runner(daemon: daemon::Daemon) -> ! {
+    deamon(daemon).unwrap();
     unreachable!();
 }
 
@@ -556,5 +556,5 @@ pub fn main() {
         common::output_level(),
         common::file_level(),
     );
-    redox_daemon::Daemon::new(daemon_runner).expect("virtio-core: failed to daemonize");
+    daemon::Daemon::new(daemon_runner).expect("virtio-core: failed to daemonize");
 }

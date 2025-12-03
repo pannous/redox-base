@@ -14,10 +14,10 @@ use log::{error, info};
 pub mod ahci;
 
 fn main() {
-    redox_daemon::Daemon::new(daemon).expect("ahcid: failed to daemonize");
+    daemon::Daemon::new(daemon).expect("ahcid: failed to daemonize");
 }
 
-fn daemon(daemon: redox_daemon::Daemon) -> ! {
+fn daemon(daemon: daemon::Daemon) -> ! {
     let mut pcid_handle = PciFunctionHandle::connect_default();
     let pci_config = pcid_handle.config();
 

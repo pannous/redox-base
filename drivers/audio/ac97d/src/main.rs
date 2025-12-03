@@ -35,7 +35,7 @@ fn main() {
     println!(" + ac97 {}", pci_config.func.display());
 
     // Daemonize
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         common::setup_logging(
             "audio",
             "pci",

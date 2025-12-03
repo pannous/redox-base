@@ -130,7 +130,7 @@ fn main() -> anyhow::Result<()> {
         std::process::exit(0);
     }
 
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         let event_queue = event::EventQueue::new().unwrap();
 
         event::user_data! {

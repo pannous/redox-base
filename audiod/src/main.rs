@@ -11,7 +11,7 @@ use libredox::{error::Result, Fd};
 use redox_scheme::wrappers::ReadinessBased;
 use redox_scheme::Socket;
 
-use redox_daemon::Daemon;
+use daemon::Daemon;
 
 use self::scheme::AudioScheme;
 

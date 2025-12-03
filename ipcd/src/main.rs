@@ -14,7 +14,7 @@ use self::uds::dgram::UdsDgramScheme;
 use self::uds::stream::UdsStreamScheme;
 
 fn main() {
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         // TODO: Better error handling
         match inner(daemon) {
             Ok(()) => std::process::exit(0),
@@ -27,7 +27,7 @@ fn main() {
     .expect("ipcd: failed to daemonize");
 }
 
-fn inner(daemon: redox_daemon::Daemon) -> anyhow::Result<()> {
+fn inner(daemon: daemon::Daemon) -> anyhow::Result<()> {
     event::user_data! {
         enum EventSource {
             ChanSocket,

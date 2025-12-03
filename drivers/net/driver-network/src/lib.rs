@@ -47,7 +47,7 @@ enum Handle {
 impl<T: NetworkAdapter> NetworkScheme<T> {
     pub fn new(
         adapter_fn: impl FnOnce() -> T,
-        daemon: redox_daemon::Daemon,
+        daemon: daemon::Daemon,
         scheme_name: String,
     ) -> Self {
         assert!(scheme_name.starts_with("network"));

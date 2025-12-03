@@ -19,7 +19,7 @@ mod winsize;
 use scheme::PtyScheme;
 
 fn main() {
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         user_data! {
             enum EventSource {
                 Socket,

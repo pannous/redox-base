@@ -29,7 +29,7 @@ fn main() {
 
     log::info!("BGA {}", pci_config.func.display());
 
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         let socket = Socket::create("bga").expect("bgad: failed to create bga scheme");
 
         let bar = unsafe { pcid_handle.map_bar(2) }.ptr.as_ptr();

@@ -27,7 +27,7 @@ static_assertions::const_assert_eq!(core::mem::size_of::<VirtHeader>(), 12);
 
 const MAX_BUFFER_LEN: usize = 65535;
 
-fn deamon(daemon: redox_daemon::Daemon) -> Result<(), Box<dyn std::error::Error>> {
+fn deamon(daemon: daemon::Daemon) -> Result<(), Box<dyn std::error::Error>> {
     let mut pcid_handle = PciFunctionHandle::connect_default();
 
     // Double check that we have the right device.
@@ -119,8 +119,8 @@ fn deamon(daemon: redox_daemon::Daemon) -> Result<(), Box<dyn std::error::Error>
     }
 }
 
-fn daemon_runner(redox_daemon: redox_daemon::Daemon) -> ! {
-    deamon(redox_daemon).unwrap();
+fn daemon_runner(daemon: daemon::Daemon) -> ! {
+    deamon(daemon).unwrap();
     unreachable!();
 }
 
@@ -132,5 +132,5 @@ pub fn main() {
         common::output_level(),
         common::file_level(),
     );
-    redox_daemon::Daemon::new(daemon_runner).expect("virtio-core: failed to daemonize");
+    daemon::Daemon::new(daemon_runner).expect("virtio-core: failed to daemonize");
 }

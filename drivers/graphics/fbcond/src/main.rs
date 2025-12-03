@@ -26,9 +26,9 @@ fn main() {
         common::file_level()
     );
 
-    redox_daemon::Daemon::new(|daemon| inner(daemon, &vt_ids)).expect("failed to create daemon");
+    daemon::Daemon::new(|daemon| inner(daemon, &vt_ids)).expect("failed to create daemon");
 }
-fn inner(daemon: redox_daemon::Daemon, vt_ids: &[usize]) -> ! {
+fn inner(daemon: daemon::Daemon, vt_ids: &[usize]) -> ! {
     let mut event_queue = EventQueue::new().expect("fbcond: failed to create event queue");
 
     // FIXME listen for resize events from inputd and handle them

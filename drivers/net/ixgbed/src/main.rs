@@ -23,7 +23,7 @@ fn main() {
 
     println!(" + IXGBE {}", pci_config.func.display());
 
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         let mut irq_file = irq.irq_handle("ixgbed");
 
         let mapped_bar = unsafe { pcid_handle.map_bar(0) };

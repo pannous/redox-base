@@ -69,10 +69,9 @@ fn main() {
         };
     }
 
-    redox_daemon::Daemon::new(|daemon| inner(daemon, framebuffers))
-        .expect("failed to create daemon");
+    daemon::Daemon::new(|daemon| inner(daemon, framebuffers)).expect("failed to create daemon");
 }
-fn inner(daemon: redox_daemon::Daemon, framebuffers: Vec<FrameBuffer>) -> ! {
+fn inner(daemon: daemon::Daemon, framebuffers: Vec<FrameBuffer>) -> ! {
     let mut inputd_display_handle = DisplayHandle::new_early("vesa").unwrap();
 
     let mut scheme = GraphicsScheme::new(FbAdapter { framebuffers }, "display.vesa".to_owned());

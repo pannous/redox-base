@@ -207,7 +207,7 @@ fn main() {
     println!(" + VirtualBox {}", pci_config.func.display());
 
     // Daemonize
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         common::acquire_port_io_rights().expect("vboxd: failed to get I/O permission");
 
         let mut width = 0;

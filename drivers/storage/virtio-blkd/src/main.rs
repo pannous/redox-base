@@ -38,7 +38,7 @@ pub fn main() -> anyhow::Result<()> {
         common::output_level(),
         common::file_level(),
     );
-    redox_daemon::Daemon::new(daemon_runner).expect("virtio-core: failed to daemonize");
+    daemon::Daemon::new(daemon_runner).expect("virtio-core: failed to daemonize");
 }
 
 #[repr(C)]
@@ -109,7 +109,7 @@ pub struct BlockVirtRequest {
 
 const_assert_eq!(core::mem::size_of::<BlockVirtRequest>(), 16);
 
-fn daemon(daemon: redox_daemon::Daemon) -> anyhow::Result<()> {
+fn daemon(daemon: daemon::Daemon) -> anyhow::Result<()> {
     let mut pcid_handle = PciFunctionHandle::connect_default();
 
     // Double check that we have the right device.
@@ -177,7 +177,7 @@ fn daemon(daemon: redox_daemon::Daemon) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn daemon_runner(redox_daemon: redox_daemon::Daemon) -> ! {
+fn daemon_runner(redox_daemon: daemon::Daemon) -> ! {
     daemon(redox_daemon).unwrap();
     unreachable!();
 }

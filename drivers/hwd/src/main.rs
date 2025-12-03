@@ -3,7 +3,7 @@ use std::process;
 mod backend;
 use self::backend::{AcpiBackend, Backend, DeviceTreeBackend, LegacyBackend};
 
-fn daemon(daemon: redox_daemon::Daemon) -> ! {
+fn daemon(daemon: daemon::Daemon) -> ! {
     common::setup_logging(
         "misc",
         "hwd",
@@ -50,7 +50,7 @@ fn daemon(daemon: redox_daemon::Daemon) -> ! {
             log::error!("failed to spawn pcid: {}", err);
         }
     }
-    
+
     daemon.ready().expect("hwd: failed to notify parent");
 
     //TODO: HWD is meant to locate PCI/XHCI/etc devices in ACPI and DeviceTree definitions and start their drivers
@@ -66,5 +66,5 @@ fn daemon(daemon: redox_daemon::Daemon) -> ! {
 }
 
 fn main() {
-    redox_daemon::Daemon::new(daemon).expect("hwd: failed to daemonize");
+    daemon::Daemon::new(daemon).expect("hwd: failed to daemonize");
 }

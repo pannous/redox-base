@@ -169,6 +169,5 @@ fn main() -> anyhow::Result<()> {
         }
 
         std::process::exit(0);
-    })
-    .map_err(|err| anyhow!("failed to start daemon: {}", err))?;
+    });
 }

@@ -12,8 +12,8 @@ fn errno() -> io::Error {
 }
 
 impl Daemon {
-    pub fn new<F: FnOnce(Daemon) -> !>(f: F) -> io::Result<!> {
-        let (mut read_pipe, write_pipe) = std::io::pipe()?;
+    pub fn new<F: FnOnce(Daemon) -> !>(f: F) -> ! {
+        let (mut read_pipe, write_pipe) = std::io::pipe().unwrap();
 
         match unsafe { libc::fork() } {
             0 => {
@@ -21,22 +21,26 @@ impl Daemon {
 
                 f(Daemon { write_pipe })
             }
-            -1 => return Err(errno()),
+            -1 => return Err(errno()).unwrap(),
             _pid => {
                 drop(write_pipe);
 
                 let mut data = [0];
 
-                read_pipe.read_exact(&mut data)?;
+                match read_pipe.read_exact(&mut data) {
+                    Ok(()) => {}
+                    Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
+                        unsafe { libc::_exit(101) };
+                    }
+                    Err(err) => return Err(err).unwrap(),
+                };
 
                 unsafe { libc::_exit(data[0].into()) };
             }
         }
     }
 
-    pub fn ready(mut self) -> io::Result<()> {
-        self.write_pipe.write_all(&[0])?;
-
-        Ok(())
+    pub fn ready(mut self) {
+        self.write_pipe.write_all(&[0]).unwrap();
     }
 }

@@ -23,8 +23,7 @@ fn main() {
                 std::process::exit(1);
             }
         }
-    })
-    .expect("ipcd: failed to daemonize");
+    });
 }
 
 fn inner(daemon: daemon::Daemon) -> anyhow::Result<()> {
@@ -67,7 +66,7 @@ fn inner(daemon: daemon::Daemon) -> anyhow::Result<()> {
     );
     let mut uds_dgram_handler = ReadinessBased::new(&uds_dgram_socket, 16);
 
-    daemon.ready().unwrap();
+    daemon.ready();
 
     // Create event listener for both files
     let mut event_queue = EventQueue::<EventSource>::new()

@@ -492,7 +492,7 @@ fn deamon(deamon: daemon::Daemon) -> anyhow::Result<()> {
     let socket_file = Socket::create("input")?;
     let mut scheme = InputScheme::new();
 
-    deamon.ready().unwrap();
+    deamon.ready();
 
     loop {
         scheme.has_new_events = false;
@@ -598,6 +598,6 @@ fn main() {
             _ => panic!("inputd: invalid argument: {}", val),
         }
     } else {
-        daemon::Daemon::new(daemon_runner).expect("inputd: failed to daemonize");
+        daemon::Daemon::new(daemon_runner);
     }
 }

@@ -26,7 +26,7 @@ fn main() {
         common::file_level()
     );
 
-    daemon::Daemon::new(|daemon| inner(daemon, &vt_ids)).expect("failed to create daemon");
+    daemon::Daemon::new(|daemon| inner(daemon, &vt_ids));
 }
 fn inner(daemon: daemon::Daemon, vt_ids: &[usize]) -> ! {
     let mut event_queue = EventQueue::new().expect("fbcond: failed to create event queue");
@@ -48,7 +48,7 @@ fn inner(daemon: daemon::Daemon, vt_ids: &[usize]) -> ! {
     // driver handoff. In the future inputd may directly pass a handle to the display instead.
     //libredox::call::setrens(0, 0).expect("fbcond: failed to enter null namespace");
 
-    daemon.ready().expect("failed to notify parent");
+    daemon.ready();
 
     let mut blocked = Vec::new();
 

@@ -113,5 +113,5 @@ fn daemon(daemon: daemon::Daemon) -> ! {
 }
 
 fn main() {
-    daemon::Daemon::new(daemon).expect("rtl8139d: failed to create daemon");
+    daemon::Daemon::new(daemon);
 }

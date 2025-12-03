@@ -57,7 +57,7 @@ fn time_arm(time_handle: &mut File, secs: i64) -> io::Result<()> {
 }
 
 fn main() {
-    daemon::Daemon::new(daemon).expect("nvmed: failed to daemonize");
+    daemon::Daemon::new(daemon);
 }
 fn daemon(daemon: daemon::Daemon) -> ! {
     let mut pcid_handle = PciFunctionHandle::connect_default();

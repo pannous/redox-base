@@ -51,7 +51,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
         }
     }
 
-    daemon.ready().expect("hwd: failed to notify parent");
+    daemon.ready();
 
     //TODO: HWD is meant to locate PCI/XHCI/etc devices in ACPI and DeviceTree definitions and start their drivers
     match backend.probe() {
@@ -66,5 +66,5 @@ fn daemon(daemon: daemon::Daemon) -> ! {
 }
 
 fn main() {
-    daemon::Daemon::new(daemon).expect("hwd: failed to daemonize");
+    daemon::Daemon::new(daemon);
 }

@@ -84,6 +84,5 @@ fn main() {
             }
         }
         unreachable!()
-    })
-    .expect("ixgbed: failed to create daemon");
+    });
 }

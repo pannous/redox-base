@@ -69,7 +69,7 @@ fn main() {
         };
     }
 
-    daemon::Daemon::new(|daemon| inner(daemon, framebuffers)).expect("failed to create daemon");
+    daemon::Daemon::new(|daemon| inner(daemon, framebuffers));
 }
 fn inner(daemon: daemon::Daemon, framebuffers: Vec<FrameBuffer>) -> ! {
     let mut inputd_display_handle = DisplayHandle::new_early("vesa").unwrap();
@@ -102,7 +102,7 @@ fn inner(daemon: daemon::Daemon, framebuffers: Vec<FrameBuffer>) -> ! {
 
     libredox::call::setrens(0, 0).expect("vesad: failed to enter null namespace");
 
-    daemon.ready().expect("failed to notify parent");
+    daemon.ready();
 
     let all = [Source::Input, Source::Scheme];
     for event in all

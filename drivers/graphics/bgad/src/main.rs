@@ -46,7 +46,7 @@ fn main() {
 
         libredox::call::setrens(0, 0).expect("bgad: failed to enter null namespace");
 
-        daemon.ready().expect("bgad: failed to notify parent");
+        daemon.ready();
 
         loop {
             let Some(request) = socket
@@ -70,6 +70,5 @@ fn main() {
                 _ => (),
             }
         }
-    })
-    .expect("bgad: failed to daemonize");
+    });
 }

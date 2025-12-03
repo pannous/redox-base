@@ -104,9 +104,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
 
     libredox::call::setrens(0, 0).expect("ps2d: failed to enter null namespace");
 
-    daemon
-        .ready()
-        .expect("ps2d: failed to mark daemon as ready");
+    daemon.ready();
 
     let mut ps2d = Ps2d::new(input, keymap);
 
@@ -187,5 +185,5 @@ fn get_keymap_from_str(k: &str) -> (fn(u8, bool) -> char, &'static str) {
 }
 
 fn main() {
-    daemon::Daemon::new(daemon).expect("ps2d: failed to create daemon");
+    daemon::Daemon::new(daemon);
 }

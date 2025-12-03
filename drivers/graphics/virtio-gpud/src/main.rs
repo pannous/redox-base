@@ -460,7 +460,7 @@ fn deamon(deamon: daemon::Daemon) -> anyhow::Result<()> {
     device.transport.setup_config_notify(MSIX_PRIMARY_VECTOR);
 
     device.transport.run_device();
-    deamon.ready().unwrap();
+    deamon.ready();
 
     let (mut scheme, mut inputd_handle) = futures::executor::block_on(scheme::GpuScheme::new(
         config,
@@ -556,5 +556,5 @@ pub fn main() {
         common::output_level(),
         common::file_level(),
     );
-    daemon::Daemon::new(daemon_runner).expect("virtio-core: failed to daemonize");
+    daemon::Daemon::new(daemon_runner);
 }

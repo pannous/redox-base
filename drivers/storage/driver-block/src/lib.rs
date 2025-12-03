@@ -313,7 +313,7 @@ impl<T: Disk> DiskScheme<T> {
         let socket = Socket::nonblock(&scheme_name).expect("failed to create disk scheme");
 
         if let Some(daemon) = daemon {
-            daemon.ready().expect("failed to signal readiness");
+            daemon.ready();
         }
 
         Self {

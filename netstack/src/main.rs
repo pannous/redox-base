@@ -97,7 +97,7 @@ fn run(daemon: daemon::Daemon) -> Result<()> {
 
     let event_queue = EventQueue::<EventSource>::new().context("failed to create event queue")?;
 
-    daemon.ready().expect("smolnetd: failed to notify parent");
+    daemon.ready();
 
     event_queue
         .subscribe(network_fd.raw(), EventSource::Network, EventFlags::READ)
@@ -172,6 +172,5 @@ fn main() {
             process::exit(1);
         }
         process::exit(0);
-    })
-    .expect("smoltcp: failed to daemonize");
+    });
 }

@@ -116,7 +116,7 @@ fn get_int_method(pcid_handle: &mut PciFunctionHandle) -> (Option<File>, Interru
 }
 
 fn main() {
-    daemon::Daemon::new(daemon).expect("xhcid: failed to daemonize");
+    daemon::Daemon::new(daemon);
 }
 
 //TODO: cleanup CSZ support
@@ -149,7 +149,7 @@ fn daemon_with_context_size<const N: usize>(
     let scheme_name = format!("usb.{}", name);
     let socket = Socket::create(scheme_name.clone()).expect("xhcid: failed to create usb scheme");
 
-    daemon.ready().expect("xhcid: failed to notify parent");
+    daemon.ready();
 
     let hci = Arc::new(
         Xhci::<N>::new(scheme_name, address, interrupt_method, pcid_handle)

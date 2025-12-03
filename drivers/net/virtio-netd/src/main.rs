@@ -132,5 +132,5 @@ pub fn main() {
         common::output_level(),
         common::file_level(),
     );
-    daemon::Daemon::new(daemon_runner).expect("virtio-core: failed to daemonize");
+    daemon::Daemon::new(daemon_runner);
 }

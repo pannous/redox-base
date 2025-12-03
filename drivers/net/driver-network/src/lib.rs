@@ -52,7 +52,7 @@ impl<T: NetworkAdapter> NetworkScheme<T> {
     ) -> Self {
         assert!(scheme_name.starts_with("network"));
         let socket = Socket::nonblock(&scheme_name).expect("failed to create network scheme");
-        daemon.ready().expect("failed to mark daemon as ready");
+        daemon.ready();
         let adapter = adapter_fn();
         NetworkScheme {
             adapter,

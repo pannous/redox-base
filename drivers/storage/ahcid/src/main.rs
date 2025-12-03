@@ -14,7 +14,7 @@ use log::{error, info};
 pub mod ahci;
 
 fn main() {
-    daemon::Daemon::new(daemon).expect("ahcid: failed to daemonize");
+    daemon::Daemon::new(daemon);
 }
 
 fn daemon(daemon: daemon::Daemon) -> ! {

@@ -21,7 +21,7 @@ use crate::scheme::FbbootlogScheme;
 mod scheme;
 
 fn main() {
-    daemon::Daemon::new(|daemon| inner(daemon)).expect("failed to create daemon");
+    daemon::Daemon::new(|daemon| inner(daemon));
 }
 fn inner(daemon: daemon::Daemon) -> ! {
     let event_queue = EventQueue::new().expect("fbbootlogd: failed to create event queue");
@@ -67,7 +67,7 @@ fn inner(daemon: daemon::Daemon) -> ! {
     // driver handoff. In the future inputd may directly pass a handle to the display instead.
     //libredox::call::setrens(0, 0).expect("fbbootlogd: failed to enter null namespace");
 
-    daemon.ready().expect("failed to notify parent");
+    daemon.ready();
 
     for event in event_queue {
         match event.expect("fbbootlogd: failed to get event").user_data {

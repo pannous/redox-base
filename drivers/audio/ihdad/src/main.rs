@@ -64,7 +64,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
         let socket = Socket::nonblock("audiohw").expect("ihdad: failed to create socket");
         let mut readiness_based = ReadinessBased::new(&socket, 16);
 
-        daemon.ready().expect("ihdad: failed to signal readiness");
+        daemon.ready();
 
         event_queue
             .subscribe(
@@ -141,5 +141,5 @@ fn daemon(daemon: daemon::Daemon) -> ! {
 
 fn main() {
     // Daemonize
-    daemon::Daemon::new(daemon).expect("ihdad: failed to daemonize");
+    daemon::Daemon::new(daemon);
 }

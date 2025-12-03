@@ -22,7 +22,7 @@ fn get_dtb() -> Vec<u8> {
 }
 
 fn main() {
-    daemon::Daemon::new(daemon).expect("mmc:failed to daemonize");
+    daemon::Daemon::new(daemon);
 }
 
 fn daemon(daemon: daemon::Daemon) -> ! {

@@ -18,7 +18,7 @@ use crate::ide::{AtaCommand, AtaDisk, Channel};
 pub mod ide;
 
 fn main() {
-    daemon::Daemon::new(daemon).expect("ided: failed to daemonize");
+    daemon::Daemon::new(daemon);
 }
 
 fn daemon(daemon: daemon::Daemon) -> ! {

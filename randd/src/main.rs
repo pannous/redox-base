@@ -365,9 +365,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
 
     let mut scheme = RandScheme::new();
 
-    daemon
-        .ready()
-        .expect("randd: failed to mark daemon as ready");
+    daemon.ready();
 
     libredox::call::setrens(0, 0).expect("randd: failed to enter null namespace");
 
@@ -388,5 +386,5 @@ fn daemon(daemon: daemon::Daemon) -> ! {
 }
 
 fn main() {
-    daemon::Daemon::new(daemon).expect("randd: failed to daemonize");
+    daemon::Daemon::new(daemon);
 }

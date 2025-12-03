@@ -79,7 +79,7 @@ fn main() {
             )
             .unwrap();
 
-        daemon.ready().expect("ac97d: failed to signal readiness");
+        daemon.ready();
 
         libredox::call::setrens(0, 0).expect("ac97d: failed to enter null namespace");
 
@@ -135,6 +135,5 @@ fn main() {
         }
 
         std::process::exit(0);
-    })
-    .expect("ac97d: failed to daemonize");
+    });
 }

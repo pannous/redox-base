@@ -86,6 +86,5 @@ fn main() {
             }
         }
         unreachable!()
-    })
-    .expect("e1000d: failed to create daemon");
+    });
 }

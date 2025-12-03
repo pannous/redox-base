@@ -50,7 +50,7 @@ fn daemon(daemon: Daemon) -> anyhow::Result<()> {
     let socket = Socket::create("audio").context("failed to create scheme")?;
 
     // The scheme is now ready to accept requests, notify the original process
-    daemon.ready().unwrap();
+    daemon.ready();
 
     let hw_file = Fd::open("/scheme/audiohw", flag::O_WRONLY | flag::O_CLOEXEC, 0)?;
 
@@ -86,8 +86,8 @@ fn daemon(daemon: Daemon) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn main() -> anyhow::Result<()> {
-    let Err(err) = Daemon::new(|x| match daemon(x) {
+fn main() {
+    Daemon::new(|x| match daemon(x) {
         Ok(()) => {
             process::exit(0);
         }
@@ -96,7 +96,4 @@ fn main() -> anyhow::Result<()> {
             process::exit(1);
         }
     });
-
-    eprintln!("audiod: {}", err);
-    process::exit(1);
 }

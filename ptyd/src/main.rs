@@ -45,7 +45,7 @@ fn main() {
             .subscribe(time_file.raw(), EventSource::Time, EventFlags::READ)
             .expect("pty: failed to watch events on time:");
 
-        daemon.ready().expect("pty: failed to notify parent");
+        daemon.ready();
 
         //TODO: do not set timeout if not necessary
         timeout(&mut time_file).expect("pty: failed to set timeout");
@@ -83,8 +83,7 @@ fn main() {
         }
 
         std::process::exit(0);
-    })
-    .expect("pty: failed to daemonize");
+    });
 }
 
 struct Todo {

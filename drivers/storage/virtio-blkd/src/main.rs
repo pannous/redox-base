@@ -31,13 +31,6 @@ pub enum Error {
 }
 
 pub fn main() {
-    common::setup_logging(
-        "disk",
-        "pci",
-        "virtio-blkd",
-        common::output_level(),
-        common::file_level(),
-    );
     daemon::Daemon::new(daemon_runner);
 }
 
@@ -178,6 +171,13 @@ fn daemon(daemon: daemon::Daemon) -> anyhow::Result<()> {
 }
 
 fn daemon_runner(redox_daemon: daemon::Daemon) -> ! {
+    common::setup_logging(
+        "disk",
+        "pci",
+        "virtio-blkd",
+        common::output_level(),
+        common::file_level(),
+    );
     daemon(redox_daemon).unwrap();
     unreachable!();
 }

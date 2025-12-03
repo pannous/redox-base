@@ -140,6 +140,5 @@ fn daemon(daemon: daemon::Daemon) -> ! {
 }
 
 fn main() {
-    // Daemonize
     daemon::Daemon::new(daemon);
 }

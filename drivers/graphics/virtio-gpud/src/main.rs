@@ -544,11 +544,6 @@ fn deamon(deamon: daemon::Daemon) -> anyhow::Result<()> {
 }
 
 fn daemon_runner(daemon: daemon::Daemon) -> ! {
-    deamon(daemon).unwrap();
-    unreachable!();
-}
-
-pub fn main() {
     common::setup_logging(
         "graphics",
         "pci",
@@ -556,5 +551,10 @@ pub fn main() {
         common::output_level(),
         common::file_level(),
     );
+    deamon(daemon).unwrap();
+    unreachable!();
+}
+
+pub fn main() {
     daemon::Daemon::new(daemon_runner);
 }

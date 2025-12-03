@@ -120,11 +120,6 @@ fn deamon(daemon: daemon::Daemon) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn daemon_runner(daemon: daemon::Daemon) -> ! {
-    deamon(daemon).unwrap();
-    unreachable!();
-}
-
-pub fn main() {
     common::setup_logging(
         "net",
         "pci",
@@ -132,5 +127,10 @@ pub fn main() {
         common::output_level(),
         common::file_level(),
     );
+    deamon(daemon).unwrap();
+    unreachable!();
+}
+
+pub fn main() {
     daemon::Daemon::new(daemon_runner);
 }

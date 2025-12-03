@@ -10,7 +10,7 @@ use self::scheme::Scheme;
 fn main() {
     let scheme_name = env::args().nth(1).expect("Usage:\n\tramfs SCHEME_NAME");
 
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         let socket =
             redox_scheme::Socket::create(&scheme_name).expect("ramfs: failed to create socket");
 
@@ -18,9 +18,7 @@ fn main() {
 
         libredox::call::setrens(0, 0).expect("ramfs: failed to enter null namespace");
 
-        daemon
-            .ready()
-            .expect("ramfs: failed to mark daemon as ready");
+        daemon.ready();
 
         loop {
             let Some(request) = socket
@@ -45,6 +43,5 @@ fn main() {
         }
 
         process::exit(0);
-    })
-    .expect("ramfs: failed to create daemon");
+    });
 }

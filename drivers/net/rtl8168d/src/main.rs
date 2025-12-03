@@ -35,7 +35,7 @@ fn map_bar(pcid_handle: &mut PciFunctionHandle) -> *mut u8 {
     panic!("rtl8168d: failed to find BAR");
 }
 
-fn daemon(daemon: redox_daemon::Daemon) -> ! {
+fn daemon(daemon: daemon::Daemon) -> ! {
     let mut pcid_handle = PciFunctionHandle::connect_default();
 
     let pci_config = pcid_handle.config();
@@ -113,5 +113,5 @@ fn daemon(daemon: redox_daemon::Daemon) -> ! {
 }
 
 fn main() {
-    redox_daemon::Daemon::new(daemon).expect("rtl8168d: failed to create daemon");
+    daemon::Daemon::new(daemon);
 }

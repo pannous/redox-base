@@ -207,7 +207,7 @@ fn main() {
     println!(" + VirtualBox {}", pci_config.func.display());
 
     // Daemonize
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         common::acquire_port_io_rights().expect("vboxd: failed to get I/O permission");
 
         let mut width = 0;
@@ -273,7 +273,7 @@ fn main() {
                 )
                 .unwrap();
 
-            daemon.ready().expect("failed to signal readiness");
+            daemon.ready();
 
             libredox::call::setrens(0, 0).expect("vboxd: failed to enter null namespace");
 
@@ -330,6 +330,5 @@ fn main() {
         }
 
         std::process::exit(0);
-    })
-    .expect("vboxd: failed to daemonize");
+    });
 }

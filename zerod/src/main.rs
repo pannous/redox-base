@@ -16,7 +16,7 @@ fn main() {
         _ => panic!("needs to be called as either nulld or zerod"),
     };
 
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         let name = match ty {
             Ty::Null => "null",
             Ty::Zero => "zero",
@@ -26,7 +26,7 @@ fn main() {
 
         libredox::call::setrens(0, 0).expect("zerod: failed to enter null namespace");
 
-        daemon.ready().expect("zerod: failed to notify parent");
+        daemon.ready();
 
         loop {
             let Some(request) = socket
@@ -46,6 +46,5 @@ fn main() {
                 _ => (),
             }
         }
-    })
-    .expect("zerod: failed to daemonize");
+    });
 }

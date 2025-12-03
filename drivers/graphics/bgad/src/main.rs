@@ -29,7 +29,7 @@ fn main() {
 
     log::info!("BGA {}", pci_config.func.display());
 
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         let socket = Socket::create("bga").expect("bgad: failed to create bga scheme");
 
         let bar = unsafe { pcid_handle.map_bar(2) }.ptr.as_ptr();
@@ -46,7 +46,7 @@ fn main() {
 
         libredox::call::setrens(0, 0).expect("bgad: failed to enter null namespace");
 
-        daemon.ready().expect("bgad: failed to notify parent");
+        daemon.ready();
 
         loop {
             let Some(request) = socket
@@ -70,6 +70,5 @@ fn main() {
                 _ => (),
             }
         }
-    })
-    .expect("bgad: failed to daemonize");
+    });
 }

@@ -197,10 +197,10 @@ fn main() {
 
     common::setup_logging("bus", "pci", "pcid", log_level, log::LevelFilter::Info);
 
-    redox_daemon::Daemon::new(move |daemon| main_inner(daemon)).unwrap();
+    daemon::Daemon::new(move |daemon| main_inner(daemon));
 }
 
-fn main_inner(daemon: redox_daemon::Daemon) -> ! {
+fn main_inner(daemon: daemon::Daemon) -> ! {
     let pcie = Pcie::new();
     let mut tree = BTreeMap::new();
 

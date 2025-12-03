@@ -19,7 +19,7 @@ fn main() {
     println!(" + sb16 at 0x{:X}\n", addr);
 
     // Daemonize
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         common::setup_logging(
             "audio",
             "pci",
@@ -62,7 +62,7 @@ fn main() {
             )
             .unwrap();
 
-        daemon.ready().expect("sb16d: failed to signal readiness");
+        daemon.ready();
 
         libredox::call::setrens(0, 0).expect("sb16d: failed to enter null namespace");
 
@@ -112,6 +112,5 @@ fn main() {
         }
 
         std::process::exit(0);
-    })
-    .expect("sb16d: failed to daemonize");
+    });
 }

@@ -33,17 +33,16 @@ fn main() {
         scheme, port, protocol
     );
 
-    redox_daemon::Daemon::new(move |d| daemon(d, scheme, port, protocol))
-        .expect("usbscsid: failed to daemonize");
+    daemon::Daemon::new(move |d| daemon(d, scheme, port, protocol));
 }
-fn daemon(daemon: redox_daemon::Daemon, scheme: String, port: PortId, protocol: u8) -> ! {
+fn daemon(daemon: daemon::Daemon, scheme: String, port: PortId, protocol: u8) -> ! {
     let disk_scheme_name = format!("disk.usb-{scheme}+{port}-scsi");
 
     // TODO: Use eventfds.
     let handle = XhciClientHandle::new(scheme.to_owned(), port);
 
     // FIXME should this wait notifying readiness until the disk scheme is created?
-    daemon.ready().expect("usbscsid: failed to signal rediness");
+    daemon.ready();
 
     let desc = handle
         .get_standard_descs()

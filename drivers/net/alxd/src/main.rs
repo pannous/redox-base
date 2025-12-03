@@ -33,11 +33,11 @@ fn main() {
     println!(" + ALX {} on: {:X}, IRQ: {}\n", name, bar, irq);
 
     // Daemonize
-    redox_daemon::Daemon::new(move |daemon| {
+    daemon::Daemon::new(move |daemon| {
         let socket = Socket::nonblock("network").expect("alxd: failed to create socket");
         let mut readiness_based = ReadinessBased::new(&socket, 16);
 
-        daemon.ready().expect("alxd: failed to signal readiness");
+        daemon.ready();
 
         let mut irq_file =
             File::open(format!("/scheme/irq/{}", irq)).expect("alxd: failed to open IRQ file");
@@ -133,6 +133,5 @@ fn main() {
             }
         }
         std::process::exit(0);
-    })
-    .expect("alxd: failed to daemonize");
+    });
 }

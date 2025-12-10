@@ -77,7 +77,6 @@ run_redoxer() {
     echo "Running redoxer $CMD_ACTION for: $TARGET"
     
     if redoxer "$CMD_ACTION"; then
-        echo -e "${GREEN}Success: $CMD_ACTION $TARGET passed.${NC}"
         return 0
     else
         echo -e "${RED}Fail: $CMD_ACTION $TARGET failed.${NC}"
@@ -106,6 +105,7 @@ if [ "$CHECK_ALL" = true ]; then
     fi
 else
     if run_redoxer "$CURRENT_TARGET"; then
+        echo -e "${GREEN}Success: $CMD_ACTION $CURRENT_TARGET passed.${NC}"
         exit 0
     else
         exit 1

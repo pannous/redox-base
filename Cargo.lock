@@ -46,7 +46,7 @@ dependencies = [
  "num-traits",
  "parking_lot 0.12.5",
  "plain",
- "redox-scheme 0.6.2",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_event",
  "redox_syscall",
  "ron",

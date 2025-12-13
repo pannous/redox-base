@@ -46,7 +46,7 @@ dependencies = [
  "num-traits",
  "parking_lot 0.12.5",
  "plain",
- "redox-scheme 0.6.2",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_event",
  "redox_syscall",
  "ron",
@@ -213,7 +213,7 @@ dependencies = [
  "ioslice",
  "libc",
  "libredox",
- "redox-scheme 0.8.2 (git+https://gitlab.redox-os.org/redox-os/redox-scheme.git)",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_syscall",
 ]
 
@@ -259,7 +259,7 @@ dependencies = [
  "log",
  "orbclient",
  "pcid",
- "redox-scheme 0.6.2",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_syscall",
 ]
 
@@ -568,7 +568,7 @@ dependencies = [
  "libredox",
  "log",
  "partitionlib",
- "redox-scheme 0.6.2",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_syscall",
 ]
 
@@ -581,7 +581,7 @@ dependencies = [
  "inputd",
  "libredox",
  "log",
- "redox-scheme 0.6.2",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_syscall",
 ]
 
@@ -655,7 +655,7 @@ dependencies = [
  "libredox",
  "orbclient",
  "ransid",
- "redox-scheme 0.6.2",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_event",
  "redox_syscall",
 ]
@@ -1000,7 +1000,7 @@ dependencies = [
  "libredox",
  "log",
  "orbclient",
- "redox-scheme 0.6.2",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_syscall",
 ]
 
@@ -1121,7 +1121,7 @@ version = "0.1.0"
 dependencies = [
  "daemon",
  "libredox",
- "redox-scheme 0.5.0",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_syscall",
 ]
 
@@ -1312,7 +1312,7 @@ dependencies = [
  "pci_types",
  "pico-args",
  "plain",
- "redox-scheme 0.6.2",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_syscall",
  "serde",
 ]
@@ -1406,7 +1406,7 @@ dependencies = [
  "libredox",
  "log",
  "orbclient",
- "redox-scheme 0.6.2",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_event",
  "redox_syscall",
 ]
@@ -1451,7 +1451,7 @@ dependencies = [
  "daemon",
  "indexmap",
  "libredox",
- "redox-scheme 0.5.0",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_syscall",
  "slab",
 ]
@@ -1539,7 +1539,7 @@ dependencies = [
  "rand_chacha 0.2.2",
  "rand_core 0.5.1",
  "raw-cpuid",
- "redox-scheme 0.2.4",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_syscall",
  "sha2",
 ]
@@ -1623,16 +1623,6 @@ dependencies = [
 
 [[package]]
 name = "redox-scheme"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6143c4d307e1c99ac14f60b5b07b2dccaf9d17137f7cee4e4e29977dd8014a1b"
-dependencies = [
- "libredox",
- "redox_syscall",
-]
-
-[[package]]
-name = "redox-scheme"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63e7f06e1b19d8143043e959fbd7b76a37e759e3e9c6bbfc9c91c496b0b44d20"
@@ -1646,26 +1636,6 @@ name = "redox-scheme"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28d292981c8f3338cb772b6024b08bcc597d0dd81020de17080a9a7b470ebb2"
-dependencies = [
- "libredox",
- "redox_syscall",
-]
-
-[[package]]
-name = "redox-scheme"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a96b9cfb034251dfb0aaa66a67059a7f0ea344039904d1d70cd36266af9c8a2f"
-dependencies = [
- "libredox",
- "redox_syscall",
-]
-
-[[package]]
-name = "redox-scheme"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c00025a04f76fdcf72c15f10c7a12d9f2fdde93e539be9a57d5d632c4158a9e"
 dependencies = [
  "libredox",
  "redox_syscall",
@@ -2639,7 +2609,7 @@ dependencies = [
  "log",
  "pcid",
  "plain",
- "redox-scheme 0.6.2",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_event",
  "redox_syscall",
  "regex",
@@ -2676,6 +2646,6 @@ version = "0.1.0"
 dependencies = [
  "daemon",
  "libredox",
- "redox-scheme 0.2.4",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_syscall",
 ]

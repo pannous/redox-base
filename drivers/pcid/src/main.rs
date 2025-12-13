@@ -1,5 +1,6 @@
 #![feature(iter_next_chunk)]
 #![feature(if_let_guard)]
+#![feature(non_exhaustive_omitted_patterns_lint)]
 
 use std::collections::BTreeMap;
 

@@ -1406,7 +1406,7 @@ dependencies = [
  "libredox",
  "log",
  "orbclient",
- "redox-scheme 0.6.2",
+ "redox-scheme 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "redox_event",
  "redox_syscall",
 ]
@@ -1636,16 +1636,6 @@ name = "redox-scheme"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28d292981c8f3338cb772b6024b08bcc597d0dd81020de17080a9a7b470ebb2"
-dependencies = [
- "libredox",
- "redox_syscall",
-]
-
-[[package]]
-name = "redox-scheme"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c00025a04f76fdcf72c15f10c7a12d9f2fdde93e539be9a57d5d632c4158a9e"
 dependencies = [
  "libredox",
  "redox_syscall",

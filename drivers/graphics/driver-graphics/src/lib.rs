@@ -1,5 +1,6 @@
 #![feature(slice_as_array)]
 
+use std::cmp;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{self, Write};
@@ -18,8 +19,8 @@ pub trait GraphicsAdapter {
     type Framebuffer: Framebuffer;
     type Cursor: CursorFramebuffer;
 
-    fn name(&self) -> [u8;16];
-    fn desc(&self) -> [u8;16];
+    fn name(&self) -> &'static [u8];
+    fn desc(&self) -> &'static [u8];
 
     fn get_cap(&self, cap: u64) -> Result<u64>;
     fn set_client_cap(&self, cap: u64, value: u64) -> Result<()>;
@@ -448,8 +449,17 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsScheme<T> {
                     payload.version_major = 1;
                     payload.version_minor = 4;
                     payload.version_patchlevel = 0;
-                    payload.name = self.adapter.name();
-                    payload.desc = self.adapter.desc();
+
+                    let name = self.adapter.name();
+                    let name_len = cmp::min(name.len(), payload.name_len);
+                    payload.name[..name_len].copy_from_slice(&name[..name_len]);
+                    payload.name_len = name.len();
+
+                    let desc = self.adapter.desc();
+                    let desc_len = cmp::min(desc.len(), payload.name_len);
+                    payload.desc[..desc_len].copy_from_slice(&desc[..desc_len]);
+                    payload.desc_len = desc.len();
+
                     Ok(size_of::<ipc::DisplayCount>())
                 }
 

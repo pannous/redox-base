@@ -19,27 +19,25 @@ impl GraphicsAdapter for FbAdapter {
     type Framebuffer = GraphicScreen;
     type Cursor = VesadCursor;
 
-    fn name(&self) -> [u8; 16] {
-        [
-            b'v', b'e', b's', b'a', b'd', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ]
+    fn name(&self) -> &'static [u8] {
+        b"vesad"
     }
 
-    fn desc(&self) -> [u8; 16] {
-        [b'V', b'E', b'S', b'A', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    fn desc(&self) -> &'static [u8] {
+        b"VESA"
     }
 
     fn get_cap(&self, cap: u64) -> syscall::Result<u64> {
         match cap {
             CAP_DUMB_BUFFER => Ok(1),
-            _ => Err(syscall::Error::new(EINVAL))
+            _ => Err(syscall::Error::new(EINVAL)),
         }
     }
 
     fn set_client_cap(&self, cap: u64, _value: u64) -> syscall::Result<()> {
         match cap {
             CLIENT_CAP_CURSOR_PLANE_HOTSPOT => Ok(()),
-            _ => Err(syscall::Error::new(EINVAL))
+            _ => Err(syscall::Error::new(EINVAL)),
         }
     }
 

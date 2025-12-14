@@ -160,7 +160,9 @@ pub mod ipc {
         pub version_minor: u32,
         pub version_patchlevel: u32,
         // FIXME allow variable sized fields
+        pub name_len: usize,
         pub name: [u8; 16],
+        pub desc_len: usize,
         pub desc: [u8; 16],
     }
 

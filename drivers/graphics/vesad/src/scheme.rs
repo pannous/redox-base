@@ -4,7 +4,8 @@ use std::ptr::{self, NonNull};
 
 use driver_graphics::{CursorFramebuffer, CursorPlane, Framebuffer, GraphicsAdapter};
 use graphics_ipc::v1::Damage;
-use syscall::PAGE_SIZE;
+use graphics_ipc::v2::ipc::{CAP_DUMB_BUFFER, CLIENT_CAP_CURSOR_PLANE_HOTSPOT};
+use syscall::{EINVAL, PAGE_SIZE};
 
 pub struct FbAdapter {
     pub framebuffers: Vec<FrameBuffer>,
@@ -17,6 +18,30 @@ impl CursorFramebuffer for VesadCursor {}
 impl GraphicsAdapter for FbAdapter {
     type Framebuffer = GraphicScreen;
     type Cursor = VesadCursor;
+
+    fn name(&self) -> [u8; 16] {
+        [
+            b'v', b'e', b's', b'a', b'd', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ]
+    }
+
+    fn desc(&self) -> [u8; 16] {
+        [b'V', b'E', b'S', b'A', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    }
+
+    fn get_cap(&self, cap: u64) -> syscall::Result<u64> {
+        match cap {
+            CAP_DUMB_BUFFER => Ok(1),
+            _ => Err(syscall::Error::new(EINVAL))
+        }
+    }
+
+    fn set_client_cap(&self, cap: u64, _value: u64) -> syscall::Result<()> {
+        match cap {
+            CLIENT_CAP_CURSOR_PLANE_HOTSPOT => Ok(()),
+            _ => Err(syscall::Error::new(EINVAL))
+        }
+    }
 
     fn display_count(&self) -> usize {
         self.framebuffers.len()

@@ -5,9 +5,10 @@ use driver_graphics::{
     CursorFramebuffer, CursorPlane, Framebuffer, GraphicsAdapter, GraphicsScheme,
 };
 use graphics_ipc::v1::Damage;
+use graphics_ipc::v2::ipc::{CAP_DUMB_BUFFER, CLIENT_CAP_CURSOR_PLANE_HOTSPOT};
 use inputd::DisplayHandle;
 
-use syscall::PAGE_SIZE;
+use syscall::{EINVAL, PAGE_SIZE};
 
 use virtio_core::spec::{Buffer, ChainBuilder, DescriptorFlags};
 use virtio_core::transport::{Error, Queue, Transport};
@@ -199,6 +200,33 @@ impl VirtGpuAdapter<'_> {
 impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
     type Framebuffer = VirtGpuFramebuffer<'a>;
     type Cursor = VirtGpuCursor;
+
+    fn name(&self) -> [u8; 16] {
+        [
+            b'v', b'i', b'r', b't', b'i', b'o', b'-', b'g', b'p', b'u', b'd', 0, 0, 0, 0, 0,
+        ]
+    }
+
+    fn desc(&self) -> [u8; 16] {
+        [
+            b'V', b'i', b'r', b't', b'I', b'O', b' ', b'G', b'P', b'U', 0, 0, 0, 0, 0, 0,
+        ]
+    }
+
+    fn get_cap(&self, cap: u64) -> syscall::Result<u64> {
+        match cap {
+            CAP_DUMB_BUFFER => Ok(1),
+            _ => Err(syscall::Error::new(EINVAL))
+        }
+    }
+
+    fn set_client_cap(&self, cap: u64, _value: u64) -> syscall::Result<()> {
+        match cap {
+            // FIXME hide cursor plane unless this client cap is set
+            CLIENT_CAP_CURSOR_PLANE_HOTSPOT => Ok(()),
+            _ => Err(syscall::Error::new(EINVAL))
+        }
+    }
 
     fn display_count(&self) -> usize {
         self.displays.len()

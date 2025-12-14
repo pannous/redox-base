@@ -18,6 +18,12 @@ pub trait GraphicsAdapter {
     type Framebuffer: Framebuffer;
     type Cursor: CursorFramebuffer;
 
+    fn name(&self) -> [u8;16];
+    fn desc(&self) -> [u8;16];
+
+    fn get_cap(&self, cap: u64) -> Result<u64>;
+    fn set_client_cap(&self, cap: u64, value: u64) -> Result<()>;
+
     /// The maximum amount of displays that could be attached.
     ///
     /// This must be constant for the lifetime of the graphics adapter.
@@ -430,6 +436,36 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsScheme<T> {
                 return Err(Error::new(EOPNOTSUPP));
             }
             Handle::V2 { vt, next_id, fbs } => match metadata[0] {
+                ipc::VERSION => {
+                    if payload.len() < size_of::<ipc::Version>() {
+                        return Err(Error::new(EINVAL));
+                    }
+                    let payload = unsafe {
+                        transmute::<&mut [u8; size_of::<ipc::Version>()], &mut ipc::Version>(
+                            payload.as_mut_array().unwrap(),
+                        )
+                    };
+                    payload.version_major = 1;
+                    payload.version_minor = 4;
+                    payload.version_patchlevel = 0;
+                    payload.name = self.adapter.name();
+                    payload.desc = self.adapter.desc();
+                    Ok(size_of::<ipc::DisplayCount>())
+                }
+
+                ipc::GET_CAP => {
+                    if payload.len() < size_of::<ipc::GetCap>() {
+                        return Err(Error::new(EINVAL));
+                    }
+                    let payload = unsafe {
+                        transmute::<&mut [u8; size_of::<ipc::GetCap>()], &mut ipc::GetCap>(
+                            payload.as_mut_array().unwrap(),
+                        )
+                    };
+                    payload.value = self.adapter.get_cap(payload.capability)?;
+                    Ok(size_of::<ipc::DisplayCount>())
+                }
+
                 ipc::DISPLAY_COUNT => {
                     if payload.len() < size_of::<ipc::DisplayCount>() {
                         return Err(Error::new(EINVAL));

@@ -1,5 +1,6 @@
 #![feature(slice_as_array)]
 
+use std::cmp;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{self, Write};
@@ -18,8 +19,8 @@ pub trait GraphicsAdapter {
     type Framebuffer: Framebuffer;
     type Cursor: CursorFramebuffer;
 
-    fn name(&self) -> [u8;16];
-    fn desc(&self) -> [u8;16];
+    fn name(&self) -> &'static [u8];
+    fn desc(&self) -> &'static [u8];
 
     fn get_cap(&self, cap: u64) -> Result<u64>;
     fn set_client_cap(&self, cap: u64, value: u64) -> Result<()>;
@@ -448,11 +449,19 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsScheme<T> {
                     payload.version_major = 1;
                     payload.version_minor = 4;
                     payload.version_patchlevel = 0;
-                    payload.name = self.adapter.name();
-                    payload.desc = self.adapter.desc();
-                    Ok(size_of::<ipc::DisplayCount>())
-                }
 
+                    let name = self.adapter.name();
+                    let name_len = cmp::min(name.len(), payload.name_len);
+                    payload.name[..name_len].copy_from_slice(&name[..name_len]);
+                    payload.name_len = name.len();
+
+                    let desc = self.adapter.desc();
+                    let desc_len = cmp::min(desc.len(), payload.name_len);
+                    payload.desc[..desc_len].copy_from_slice(&desc[..desc_len]);
+                    payload.desc_len = desc.len();
+
+                    Ok(size_of::<ipc::Version>())
+                }
                 ipc::GET_CAP => {
                     if payload.len() < size_of::<ipc::GetCap>() {
                         return Err(Error::new(EINVAL));
@@ -463,9 +472,21 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsScheme<T> {
                         )
                     };
                     payload.value = self.adapter.get_cap(payload.capability)?;
-                    Ok(size_of::<ipc::DisplayCount>())
+                    Ok(size_of::<ipc::GetCap>())
                 }
-
+                ipc::SET_CLIENT_CAP => {
+                    if payload.len() < size_of::<ipc::SetClientCap>() {
+                        return Err(Error::new(EINVAL));
+                    }
+                    let payload = unsafe {
+                        transmute::<&mut [u8; size_of::<ipc::SetClientCap>()], &mut ipc::SetClientCap>(
+                            payload.as_mut_array().unwrap(),
+                        )
+                    };
+                    self.adapter
+                        .set_client_cap(payload.capability, payload.value)?;
+                    Ok(size_of::<ipc::SetClientCap>())
+                }
                 ipc::DISPLAY_COUNT => {
                     if payload.len() < size_of::<ipc::DisplayCount>() {
                         return Err(Error::new(EINVAL));

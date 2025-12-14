@@ -201,22 +201,18 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
     type Framebuffer = VirtGpuFramebuffer<'a>;
     type Cursor = VirtGpuCursor;
 
-    fn name(&self) -> [u8; 16] {
-        [
-            b'v', b'i', b'r', b't', b'i', b'o', b'-', b'g', b'p', b'u', b'd', 0, 0, 0, 0, 0,
-        ]
+    fn name(&self) -> &'static [u8] {
+        b"virtio-gpud"
     }
 
-    fn desc(&self) -> [u8; 16] {
-        [
-            b'V', b'i', b'r', b't', b'I', b'O', b' ', b'G', b'P', b'U', 0, 0, 0, 0, 0, 0,
-        ]
+    fn desc(&self) -> &'static [u8] {
+        b"VirtIO GPU"
     }
 
     fn get_cap(&self, cap: u64) -> syscall::Result<u64> {
         match cap {
             CAP_DUMB_BUFFER => Ok(1),
-            _ => Err(syscall::Error::new(EINVAL))
+            _ => Err(syscall::Error::new(EINVAL)),
         }
     }
 
@@ -224,7 +220,7 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
         match cap {
             // FIXME hide cursor plane unless this client cap is set
             CLIENT_CAP_CURSOR_PLANE_HOTSPOT => Ok(()),
-            _ => Err(syscall::Error::new(EINVAL))
+            _ => Err(syscall::Error::new(EINVAL)),
         }
     }
 

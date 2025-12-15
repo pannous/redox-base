@@ -869,6 +869,7 @@ dependencies = [
  "drm-sys",
  "libredox",
  "log",
+ "redox_syscall",
 ]
 
 [[package]]

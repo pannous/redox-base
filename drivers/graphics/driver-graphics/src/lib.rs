@@ -1,9 +1,9 @@
 #![feature(slice_as_array)]
 
-use std::cmp;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{self, Write};
+use std::mem;
 use std::mem::transmute;
 use std::sync::Arc;
 
@@ -437,68 +437,36 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsScheme<T> {
                 return Err(Error::new(EOPNOTSUPP));
             }
             Handle::V2 { vt, next_id, fbs } => match metadata[0] {
-                ipc::VERSION => {
-                    if payload.len() < size_of::<ipc::Version>() {
-                        return Err(Error::new(EINVAL));
-                    }
-                    let payload = unsafe {
-                        transmute::<&mut [u8; size_of::<ipc::Version>()], &mut ipc::Version>(
-                            payload.as_mut_array().unwrap(),
-                        )
-                    };
-                    payload.version_major = 1;
-                    payload.version_minor = 4;
-                    payload.version_patchlevel = 0;
+                ipc::VERSION => ipc::DrmVersion::with(payload, |mut data| {
+                    data.set_version_major(1);
+                    data.set_version_minor(4);
+                    data.set_version_patchlevel(0);
 
-                    let name = self.adapter.name();
-                    let name_len = cmp::min(name.len(), payload.name_len);
-                    payload.name[..name_len].copy_from_slice(&name[..name_len]);
-                    payload.name_len = name.len();
+                    data.set_name(unsafe { mem::transmute(self.adapter.name()) });
+                    data.set_date(unsafe { mem::transmute(&b"0"[..]) });
+                    data.set_desc(unsafe { mem::transmute(self.adapter.desc()) });
 
-                    let desc = self.adapter.desc();
-                    let desc_len = cmp::min(desc.len(), payload.name_len);
-                    payload.desc[..desc_len].copy_from_slice(&desc[..desc_len]);
-                    payload.desc_len = desc.len();
-
-                    Ok(size_of::<ipc::Version>())
-                }
-                ipc::GET_CAP => {
-                    if payload.len() < size_of::<drm_sys::drm_get_cap>() {
-                        return Err(Error::new(EINVAL));
-                    }
-                    let payload = unsafe {
-                        transmute::<
-                            &mut [u8; size_of::<drm_sys::drm_get_cap>()],
-                            &mut drm_sys::drm_get_cap,
-                        >(payload.as_mut_array().unwrap())
-                    };
-                    payload.value = self.adapter.get_cap(
-                        payload
-                            .capability
-                            .try_into()
-                            .map_err(|_| syscall::Error::new(EINVAL))?,
-                    )?;
-                    Ok(size_of::<drm_sys::drm_get_cap>())
-                }
-                ipc::SET_CLIENT_CAP => {
-                    if payload.len() < size_of::<drm_sys::drm_set_client_cap>() {
-                        return Err(Error::new(EINVAL));
-                    }
-                    let payload = unsafe {
-                        transmute::<
-                            &mut [u8; size_of::<drm_sys::drm_set_client_cap>()],
-                            &mut drm_sys::drm_set_client_cap,
-                        >(payload.as_mut_array().unwrap())
-                    };
+                    Ok(0)
+                }),
+                ipc::GET_CAP => ipc::DrmGetCap::with(payload, |mut data| {
+                    data.set_value(
+                        self.adapter.get_cap(
+                            data.capability()
+                                .try_into()
+                                .map_err(|_| syscall::Error::new(EINVAL))?,
+                        )?,
+                    );
+                    Ok(0)
+                }),
+                ipc::SET_CLIENT_CAP => ipc::DrmSetClientCap::with(payload, |data| {
                     self.adapter.set_client_cap(
-                        payload
-                            .capability
+                        data.capability()
                             .try_into()
                             .map_err(|_| syscall::Error::new(EINVAL))?,
-                        payload.value,
+                        data.value(),
                     )?;
-                    Ok(size_of::<drm_sys::drm_set_client_cap>())
-                }
+                    Ok(0)
+                }),
                 ipc::DISPLAY_COUNT => {
                     if payload.len() < size_of::<ipc::DisplayCount>() {
                         return Err(Error::new(EINVAL));

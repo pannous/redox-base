@@ -692,6 +692,9 @@ impl<'sock> UdsStreamScheme<'sock> {
 
         let (bytes_written, remote_id) = {
             let name = self.get_socket(id)?.borrow().path.clone();
+            let (remote_id, remote_rc) = self.get_connected_peer(id, msg_flags)?;
+            let mut socket = remote_rc.borrow_mut();
+            let connection = socket.require_connected_connection(msg_flags)?;
             let (pid, uid, gid) = get_uid_gid_from_pid(self.proc_creds_capability, ctx.pid)?;
 
             let packet = DataPacket::from_stream(
@@ -701,17 +704,13 @@ impl<'sock> UdsStreamScheme<'sock> {
             )?;
 
             let payload_len = packet.len();
+
             // sendmsg(2) on `SOCK_STREAM` with zero-byte payload is a no-op
             // even if ancillary data is present. Note that this does not apply
             // to `SOCK_DGRAM`.
             if payload_len == 0 {
                 return Ok(0);
             }
-
-            let (remote_id, remote_rc) = self.get_connected_peer(id, msg_flags)?;
-
-            let mut socket = remote_rc.borrow_mut();
-            let connection = socket.require_connected_connection(msg_flags)?;
 
             connection.packets.push_back(packet);
             (payload_len, remote_id)

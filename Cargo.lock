@@ -813,7 +813,7 @@ dependencies = [
 [[package]]
 name = "generic-rt"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#3ebd43b4ceb77bfee2a9c155993ec2fb5843ad6b"
+source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#13b93e0f901ea61358d80b4cd177601872ef830e"
 
 [[package]]
 name = "getrandom"
@@ -1619,7 +1619,7 @@ dependencies = [
 [[package]]
 name = "redox-ioctl"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/Ibuki.O/relibc.git?branch=replace-unlink-rmdir-with-unlinkat#daf01ee12975a5481d2c1302e19eab45013427f4"
+source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#13b93e0f901ea61358d80b4cd177601872ef830e"
 dependencies = [
  "drm-sys",
  "redox_syscall 0.6.0",
@@ -1638,15 +1638,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "redox-path"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "436d45c2b6a5b159d43da708e62b25be3a4a3d5550d654b72216ade4c4bfd717"
+
+[[package]]
 name = "redox-rt"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#3ebd43b4ceb77bfee2a9c155993ec2fb5843ad6b"
+source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#13b93e0f901ea61358d80b4cd177601872ef830e"
 dependencies = [
  "bitflags 2.10.0",
  "generic-rt",
  "goblin",
  "plain",
- "redox_syscall 0.5.18",
+ "redox-path",
+ "redox_syscall 0.6.0",
 ]
 
 [[package]]

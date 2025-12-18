@@ -1,9 +1,8 @@
+use std::cmp;
 use std::collections::VecDeque;
-use std::{cmp, mem};
 
 use console_draw::{TextScreen, V2DisplayMap};
-use drm::buffer::{Buffer, DrmFourcc};
-use drm::control::dumbbuffer::DumbMapping;
+use drm::buffer::Buffer;
 use drm::control::Device;
 use graphics_ipc::v2::V2GraphicsHandle;
 use inputd::ConsumerHandle;
@@ -54,25 +53,14 @@ impl FbbootlogScheme {
             .unwrap()
             .modes()[0]
             .size();
-        let mut fb = new_display_handle
-            .create_dumb_buffer((width.into(), height.into()), DrmFourcc::Argb8888, 32)
-            .unwrap();
 
-        let display_map = match new_display_handle.map_dumb_buffer(&mut fb) {
-            Ok(display_map) => unsafe {
-                mem::transmute::<DumbMapping<'_>, DumbMapping<'static>>(display_map)
-            },
+        match V2DisplayMap::new(new_display_handle, width.into(), height.into()) {
+            Ok(display_map) => self.display_map = Some(display_map),
             Err(err) => {
                 eprintln!("fbbootlogd: failed to open display: {}", err);
                 return;
             }
         };
-
-        self.display_map = Some(V2DisplayMap {
-            display_handle: new_display_handle,
-            mapping: display_map,
-            fb,
-        });
 
         eprintln!("fbbootlogd: mapped display");
     }
@@ -173,19 +161,10 @@ impl FbbootlogScheme {
         };
 
         if (width, height) != map.fb.size() {
-            match map
-                .display_handle
-                .create_dumb_buffer((width, height), DrmFourcc::Argb8888, 32)
-            {
-                Ok(fb) => match text_screen.resize(map, fb) {
-                    Ok(()) => eprintln!("fbbootlogd: mapped display"),
-                    Err(err) => {
-                        eprintln!("fbbootlogd: failed to open display: {}", err);
-                        return;
-                    }
-                },
+            match text_screen.resize(map, width, height) {
+                Ok(()) => eprintln!("fbbootlogd: mapped display"),
                 Err(err) => {
-                    eprintln!("fbbootlogd: failed to create framebuffer: {}", err);
+                    eprintln!("fbbootlogd: failed to create or map framebuffer: {}", err);
                     return;
                 }
             }

@@ -1,10 +1,9 @@
 use console_draw::{TextScreen, V2DisplayMap};
-use drm::buffer::{Buffer, DrmFourcc};
-use drm::control::dumbbuffer::DumbMapping;
+use drm::buffer::Buffer;
 use drm::control::Device;
 use graphics_ipc::v2::{Damage, V2GraphicsHandle};
 use inputd::ConsumerHandle;
-use std::{io, mem};
+use std::io;
 
 pub struct Display {
     pub input_handle: ConsumerHandle,
@@ -35,29 +34,21 @@ impl Display {
             .unwrap()
             .modes()[0]
             .size();
-        let mut fb = new_display_handle
-            .create_dumb_buffer((width.into(), height.into()), DrmFourcc::Argb8888, 32)
-            .unwrap();
 
-        let map = match new_display_handle.map_dumb_buffer(&mut fb) {
-            Ok(map) => unsafe { mem::transmute::<DumbMapping<'_>, DumbMapping<'static>>(map) },
+        match V2DisplayMap::new(new_display_handle, width.into(), height.into()) {
+            Ok(map) => {
+                log::debug!(
+                    "fbcond: Mapped new display with size {}x{}",
+                    map.fb.size().0,
+                    map.fb.size().1,
+                );
+                self.map = Some(map)
+            }
             Err(err) => {
-                log::error!("failed to map display: {}", err);
+                eprintln!("fbcond: failed to open display: {}", err);
                 return;
             }
-        };
-
-        log::debug!(
-            "fbcond: Mapped new display with size {}x{}",
-            fb.size().0,
-            fb.size().1,
-        );
-
-        self.map = Some(V2DisplayMap {
-            display_handle: new_display_handle,
-            fb,
-            mapping: map,
-        });
+        }
     }
 
     pub fn handle_resize(map: &mut V2DisplayMap, text_screen: &mut TextScreen) {
@@ -72,21 +63,11 @@ impl Display {
         };
 
         if (width, height) != map.fb.size() {
-            match map
-                .display_handle
-                .create_dumb_buffer((width, height), DrmFourcc::Argb8888, 32)
-            {
-                Ok(fb) => {
-                    match text_screen.resize(map, fb) {
-                        Ok(()) => eprintln!("fbcond: mapped display"),
-                        Err(err) => {
-                            eprintln!("fbcond: failed to open display: {}", err);
-                            return;
-                        }
-                    };
-                }
+            match text_screen.resize(map, width, height) {
+                Ok(()) => eprintln!("fbcond: mapped display"),
                 Err(err) => {
-                    log::error!("fbcond: failed to create framebuffer: {}", err);
+                    eprintln!("fbcond: failed to create or map framebuffer: {}", err);
+                    return;
                 }
             }
         }

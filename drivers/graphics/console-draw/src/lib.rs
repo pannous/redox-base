@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
 use std::{cmp, io, mem, ptr};
 
-use drm::buffer::Buffer;
+use drm::buffer::{Buffer, DrmFourcc};
 use drm::control::dumbbuffer::{DumbBuffer, DumbMapping};
 use drm::control::Device;
 use graphics_ipc::v1::Damage;
@@ -14,10 +14,23 @@ use orbclient::FONT;
 pub struct V2DisplayMap {
     pub display_handle: V2GraphicsHandle,
     pub fb: DumbBuffer,
-    pub mapping: DumbMapping<'static>,
+    mapping: DumbMapping<'static>,
 }
 
 impl V2DisplayMap {
+    pub fn new(display_handle: V2GraphicsHandle, width: u32, height: u32) -> io::Result<Self> {
+        let mut fb = display_handle.create_dumb_buffer((width, height), DrmFourcc::Argb8888, 32)?;
+
+        let map = display_handle.map_dumb_buffer(&mut fb)?;
+        let map = unsafe { mem::transmute::<DumbMapping<'_>, DumbMapping<'static>>(map) };
+
+        Ok(Self {
+            display_handle,
+            fb,
+            mapping: map,
+        })
+    }
+
     unsafe fn console_map(&mut self) -> DisplayMap {
         DisplayMap {
             offscreen: ptr::slice_from_raw_parts_mut(
@@ -30,10 +43,10 @@ impl V2DisplayMap {
     }
 }
 
-pub struct DisplayMap {
-    pub offscreen: *mut [u32],
-    pub width: usize,
-    pub height: usize,
+struct DisplayMap {
+    offscreen: *mut [u32],
+    width: usize,
+    height: usize,
 }
 
 pub struct TextScreen {
@@ -257,7 +270,7 @@ impl TextScreen {
         damage
     }
 
-    pub fn resize(&mut self, old_map: &mut V2DisplayMap, mut new_fb: DumbBuffer) -> io::Result<()> {
+    pub fn resize(&mut self, map: &mut V2DisplayMap, width: u32, height: u32) -> io::Result<()> {
         // FIXME fold row when target is narrower and maybe unfold when it is wider
         fn copy_row(
             old_map: &mut DisplayMap,
@@ -274,14 +287,18 @@ impl TextScreen {
             }
         }
 
-        let new_mapping = old_map.display_handle.map_dumb_buffer(&mut new_fb)?;
+        let mut new_fb =
+            map.display_handle
+                .create_dumb_buffer((width, height), DrmFourcc::Argb8888, 32)?;
+
+        let new_mapping = map.display_handle.map_dumb_buffer(&mut new_fb)?;
         let mut new_mapping =
             unsafe { mem::transmute::<DumbMapping<'_>, DumbMapping<'static>>(new_mapping) };
 
         new_mapping.fill(0);
 
         {
-            let old_map = unsafe { &mut old_map.console_map() };
+            let old_map = unsafe { &mut map.console_map() };
             let new_map = &mut DisplayMap {
                 offscreen: ptr::slice_from_raw_parts_mut(
                     new_mapping.as_mut_ptr() as *mut u32,
@@ -307,10 +324,10 @@ impl TextScreen {
             }
         }
 
-        let old_fb = mem::replace(&mut old_map.fb, new_fb);
-        old_map.mapping = new_mapping;
+        let old_fb = mem::replace(&mut map.fb, new_fb);
+        map.mapping = new_mapping;
 
-        let _ = old_map.display_handle.destroy_dumb_buffer(old_fb);
+        let _ = map.display_handle.destroy_dumb_buffer(old_fb);
 
         Ok(())
     }

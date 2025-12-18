@@ -5,6 +5,7 @@
 - [Hardware Interfaces](#hardware-interfaces)
 - [Devices](#devices)
   - [CPU](#cpu)
+  - [Controllers](#controllers)
   - [Storage](#storage)
   - [Graphics](#graphics)
   - [Input](#input)
@@ -19,78 +20,82 @@
 ## Libraries
 
 - amlserde - Library to provide serialization/deserialization of the AML symbol table from ACPI
-- block-io-wrapper - Library used by other drivers
+- block-io-wrapper - TODO
 - common - Library with shared driver code
 - executor - Library to run Rust futures and integrate the executor in an interrupt+queue model without a separated reactor thread
-- graphics/console-draw - Library with shared terminal drawing code
-- graphics/driver-graphics - Library with shared graphics code
-- graphics/graphics-ipc - Library with graphics IPC shared code
-- net/driver-network - Library with shared networking code
-- partitionlib - Library with MBR and GPT code
-- storage/driver-block - Library with shared storage code
+- [graphics/console-draw](graphics/console-draw/) - Library with shared terminal drawing code
+- [graphics/driver-graphics](graphics/driver-graphics/) - Library with shared graphics code
+- [graphics/graphics-ipc](graphics/graphics-ipc/) - Library with graphics IPC shared code
+- [net/driver-network](net/driver-network/) - Library with shared networking code
+- [storage/partitionlib](storage/partitionlib/) - Library with MBR and GPT code
+- [storage/driver-block](storage/driver-block/) - Library with shared storage code
 
 ## Services
 
-- graphics/fbbootlogd - Daemon for boot log drawing
-- graphics/fbcond - Terminal daemon
+- [graphics/fbbootlogd](graphics/fbbootlogd/) - Daemon for boot log drawing
+- [graphics/fbcond](graphics/fbcond/) - Terminal daemon
 - hwd - Handles the ACPI and DeviceTree booting
 - inputd - Multiplexes input from multiple input drivers and provides that to Orbital
 - pcid-spawner - Daemon for PCI device driver spawn
-- storage/lived - Daemon for live disk
+- [storage/lived](storage/lived/) - Daemon for live disk
 - redoxerd - Daemon that send/receive terminal text between the host system and QEMU
 
 ## Hardware Interfaces
 
-- acpid - ACPI interface
-- pcid - PCI interface with PCI Express extensions
+- acpid - ACPI interface driver
+- pcid - PCI interface driver with PCI Express extensions
 
 ## Devices
 
 ### CPU
 
-- rtcd - x86 real time clock
+- rtcd - x86 real time clock driver
+
+### Controllers
+
+- [usb/xhcid](usb/xhcid/) - xHCI USB controller driver
 
 ### Storage
 
-- storage/ahcid - SATA interface
-- storage/bcm2835-sdhcid - Raspberry Pi 3B+ storage driver
-- storage/ided - IDE interface
-- storage/nvmed - NVMe interface
-- storage/virtio-blkd - VirtIO block device
-- usb/usbscsid - USB SCSI
+- [storage/ahcid](storage/ahcid/) - SATA interface driver
+- [storage/bcm2835-sdhcid](storage/bcm2835-sdhcid/) - Raspberry Pi 3B+ storage driver
+- [storage/ided](storage/ided/) - IDE interface driver
+- [storage/nvmed](storage/nvmed/) - NVMe interface driver
+- [storage/virtio-blkd](storage/virtio-blkd/) - VirtIO block device driver
+- [storage/usbscsid](storage/usbscsid/) - USB SCSI driver
 
 ### Graphics
 
-- graphics/bgad - Bochs video driver
-- graphics/vesad - VESA interface
-- graphics/virtio-gpud - VirtIO GPU device
+- [graphics/bgad](graphics/bgad/) - Bochs video driver
+- [graphics/ihdgd](graphics/ihdgd/) - Intel graphics driver
+- [graphics/vesad](graphics/vesad/) - VESA video driver
+- [graphics/virtio-gpud](graphics/virtio-gpud/) - VirtIO GPU device driver
 
 ### Input
 
-- input/ps2d - PS/2 interface
-- usb/usbhidd - USB HID
-- usb/usbctl - USB control
+- [input/ps2d](input/ps2d/) - PS/2 interface driver
+- [input/usbhidd](input/usbhidd/) - USB HID driver
+- [usb/usbctl](usb/usbctl/) - USB control
+- [usb/usbhubd](usb/usbhubd/) - USB hub driver
 
 ### Sound
 
-- audio/ac97d - Realtek audio chipsets
-- audio/ihdad - Intel HD Audio chipsets
-- audio/sb16d - Sound Blaster audio
+- [audio/ac97d](audio/ac97d/) - Realtek audio chipsets driver
+- [audio/ihdad](audio/ihdad/) - Intel HD Audio chipsets driver
+- [audio/sb16d](audio/sb16d/) - Sound Blaster audio driver
 
 ### Networking
 
-- net/alxd - Qualcomm Atheros ethernet
-- net/e1000d - Intel Gigabit ethernet
-- net/ixgbed - Intel 10 Gigabit ethernet
-- net/rtl8139d, net/rtl8168d - Realtek ethernet
-- net/virtio-netd - VirtIO network
+- [net/alxd](net/alxd/) - Qualcomm Atheros ethernet driver
+- [net/e1000d](net/e1000d/) - Intel Gigabit ethernet driver
+- [net/ixgbed](net/ixgbed/) - Intel 10 Gigabit ethernet driver
+- [net/rtl8139d](net/rtl8139d/), [net/rtl8168d](net/rtl8168d/) - Realtek ethernet driver
+- [net/virtio-netd](net/virtio-netd/) - VirtIO network device driver
 
 ### Virtualization
 
-- net/virtio-netd - VirtIO network device
-- vboxd - VirtualBox guest driver
-- virtio-core - VirtIO core
-- usb/xhcid - xHCI USB controller
+- vboxd - VirtualBox guest driver driver
+- virtio-core - VirtIO core driver
 
 Some drivers are work-in-progress and incomplete, read [this](https://gitlab.redox-os.org/redox-os/base/-/issues/56) tracking issue to verify.
 
@@ -154,3 +159,5 @@ To learn how to do development with this system component inside the Redox build
 To build this system component you need to download the Redox build system, you can learn how to do it on the [Building Redox](https://doc.redox-os.org/book/podman-build.html) page.
 
 This is necessary because they only work with cross-compilation to a Redox virtual machine or real hardware, but you can do some testing from Linux.
+
+[Back to top](#drivers)

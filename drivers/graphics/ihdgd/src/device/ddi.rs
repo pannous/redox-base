@@ -151,10 +151,7 @@ impl Ddi {
                 eprint!(" CL_{:?} {:08X}", reg, mmio.read());
             }
         }
-        for reg in [
-            PortPcsReg::Dw1,
-            PortPcsReg::Dw9,
-        ] {
+        for reg in [PortPcsReg::Dw1, PortPcsReg::Dw9] {
             for lane in lanes {
                 if let Some(mmio) = self.port_pcs(reg, lane) {
                     eprint!(" PCS_{:?}_{:?} {:08X}", reg, lane, mmio.read());
@@ -203,7 +200,11 @@ impl Ddi {
         self.port_reg((reg as usize) + (lane as usize))
     }
 
-    pub fn voltage_swing_hdmi(&mut self, gttmm: &MmioRegion, timing: &edid::DetailedTiming) -> Result<()> {
+    pub fn voltage_swing_hdmi(
+        &mut self,
+        gttmm: &MmioRegion,
+        timing: &edid::DetailedTiming,
+    ) -> Result<()> {
         struct Setting {
             dw2_swing_sel: u32,
             dw7_n_scalar: u32,
@@ -262,7 +263,8 @@ impl Ddi {
         {
             // It is not possible to read from GRP register, so use LN0 as template
             let mut pcs_dw1_ln0 = self.port_pcs(PortPcsReg::Dw1, PortLane::Ln0).unwrap();
-            let mut pcs_dw1_grp = WriteOnly::new(self.port_pcs(PortPcsReg::Dw1, PortLane::Grp).unwrap());
+            let mut pcs_dw1_grp =
+                WriteOnly::new(self.port_pcs(PortPcsReg::Dw1, PortLane::Grp).unwrap());
             let mut v = pcs_dw1_ln0.read();
             v &= !PORT_PCS_DW1_CMNKEEPER_ENABLE;
             pcs_dw1_grp.write(v);
@@ -303,7 +305,10 @@ impl Ddi {
 
         // Disable eDP bits in PORT_CL_DW10
         let mut cl_dw10 = self.port_cl(PortClReg::Dw10).unwrap();
-        cl_dw10.writef(PORT_CL_DW10_EDP4K2K_MODE_OVRD_EN | PORT_CL_DW10_EDP4K2K_MODE_OVRD_VAL, false);
+        cl_dw10.writef(
+            PORT_CL_DW10_EDP4K2K_MODE_OVRD_EN | PORT_CL_DW10_EDP4K2K_MODE_OVRD_VAL,
+            false,
+        );
 
         // For PORT_TX_DW5:
         // - Set 2 tap disable from settings
@@ -314,19 +319,15 @@ impl Ddi {
         // - Set coeff polarity to 0
         {
             let mut v = tx_dw5_ln0.read();
-            v &= !(
-                PORT_TX_DW5_DISABLE_2_TAP |
-                PORT_TX_DW5_CURSOR_PROGRAM |
-                PORT_TX_DW5_COEFF_POLARITY |
-                PORT_TX_DW5_SCALING_MODE_SEL_MASK |
-                PORT_TX_DW5_RTERM_SELECT_MASK
-            );
-            v |= (
-                (setting.dw5_2_tap_disable << PORT_TX_DW5_DISABLE_2_TAP_SHIFT) |
-                PORT_TX_DW5_DISABLE_3_TAP |
-                (0b010 << PORT_TX_DW5_SCALING_MODE_SEL_SHIFT) |
-                (0b110 << PORT_TX_DW5_RTERM_SELECT_SHIFT)
-            );
+            v &= !(PORT_TX_DW5_DISABLE_2_TAP
+                | PORT_TX_DW5_CURSOR_PROGRAM
+                | PORT_TX_DW5_COEFF_POLARITY
+                | PORT_TX_DW5_SCALING_MODE_SEL_MASK
+                | PORT_TX_DW5_RTERM_SELECT_MASK);
+            v |= ((setting.dw5_2_tap_disable << PORT_TX_DW5_DISABLE_2_TAP_SHIFT)
+                | PORT_TX_DW5_DISABLE_3_TAP
+                | (0b010 << PORT_TX_DW5_SCALING_MODE_SEL_SHIFT)
+                | (0b110 << PORT_TX_DW5_RTERM_SELECT_SHIFT));
             tx_dw5_grp.write(v);
         }
 
@@ -340,17 +341,12 @@ impl Ddi {
         for lane in lanes {
             let mut tx_dw2 = self.port_tx(PortTxReg::Dw2, lane).unwrap();
             let mut v = tx_dw2.read();
-            v &= !(
-                PORT_TX_DW2_SWING_SEL_UPPER_MASK |
-                PORT_TX_DW2_SWING_SEL_LOWER_MASK |
-                PORT_TX_DW2_RCOMP_SCALAR_MASK
-            );
-            v |= (
-                (((setting.dw2_swing_sel >> 3) & 1) << PORT_TX_DW2_SWING_SEL_UPPER_SHIFT) |
-                ((setting.dw2_swing_sel & 0b111) << PORT_TX_DW2_SWING_SEL_LOWER_SHIFT) |
-                (0x98 << PORT_TX_DW2_RCOMP_SCALAR_SHIFT)
-
-            );
+            v &= !(PORT_TX_DW2_SWING_SEL_UPPER_MASK
+                | PORT_TX_DW2_SWING_SEL_LOWER_MASK
+                | PORT_TX_DW2_RCOMP_SCALAR_MASK);
+            v |= ((((setting.dw2_swing_sel >> 3) & 1) << PORT_TX_DW2_SWING_SEL_UPPER_SHIFT)
+                | ((setting.dw2_swing_sel & 0b111) << PORT_TX_DW2_SWING_SEL_LOWER_SHIFT)
+                | (0x98 << PORT_TX_DW2_RCOMP_SCALAR_SHIFT));
             tx_dw2.write(v);
         }
 
@@ -361,14 +357,11 @@ impl Ddi {
         for lane in lanes {
             let mut tx_dw4 = self.port_tx(PortTxReg::Dw4, lane).unwrap();
             let mut v = tx_dw4.read();
-            v &= !(
-                PORT_TX_DW4_POST_CURSOR_1_MASK |
-                PORT_TX_DW4_POST_CURSOR_2_MASK |
-                PORT_TX_DW4_CURSOR_COEFF_MASK
-            );
-            v |=
-                (setting.dw4_post_cursor_1 << PORT_TX_DW4_POST_CURSOR_1_SHIFT) |
-                (setting.dw4_cursor_coeff << PORT_TX_DW4_CURSOR_COEFF_SHIFT);
+            v &= !(PORT_TX_DW4_POST_CURSOR_1_MASK
+                | PORT_TX_DW4_POST_CURSOR_2_MASK
+                | PORT_TX_DW4_CURSOR_COEFF_MASK);
+            v |= (setting.dw4_post_cursor_1 << PORT_TX_DW4_POST_CURSOR_1_SHIFT)
+                | (setting.dw4_cursor_coeff << PORT_TX_DW4_CURSOR_COEFF_SHIFT);
             tx_dw4.write(v);
         }
 
@@ -393,12 +386,12 @@ impl Ddi {
     pub fn kabylake(gttmm: &Arc<MmioRegion>) -> Result<Vec<Self>> {
         let mut ddis = Vec::new();
         for (i, name) in [
-            "A",
-            "B",
-            "C",
-            "D",
+            "A", "B", "C", "D",
             //TODO: missing AUX regs? "E",
-        ].iter().enumerate() {
+        ]
+        .iter()
+        .enumerate()
+        {
             ddis.push(Self {
                 name,
                 index: i,
@@ -424,14 +417,14 @@ impl Ddi {
                     "B" => Some(0b101),
                     "C" => Some(0b100),
                     "D" => Some(0b110),
-                    _ => None
+                    _ => None,
                 },
                 // IHD-OS-KBL-Vol 12-1.17 GMBUS and GPIO
                 gpio_port: match *name {
                     "B" => Some(GpioPort::Port4),
                     "C" => Some(GpioPort::Port3),
                     "D" => Some(GpioPort::Port5),
-                    _ => None
+                    _ => None,
                 },
                 // IHD-OS-KBL-Vol 2c-1.17 PWR_WELL_CTL
                 // All auxes go through the same Misc IO request
@@ -476,16 +469,11 @@ impl Ddi {
     pub fn tigerlake(gttmm: &Arc<MmioRegion>) -> Result<Vec<Self>> {
         let mut ddis = Vec::new();
         for (i, name) in [
-            "A",
-            "B",
-            "C",
-            "USBC1",
-            "USBC2",
-            "USBC3",
-            "USBC4",
-            "USBC5",
-            "USBC6",
-        ].iter().enumerate() {
+            "A", "B", "C", "USBC1", "USBC2", "USBC3", "USBC4", "USBC5", "USBC6",
+        ]
+        .iter()
+        .enumerate()
+        {
             let port_base = match i {
                 0 => Some(0x162000),
                 1 => Some(0x6C000),
@@ -514,7 +502,7 @@ impl Ddi {
                     0 => Some(0),
                     1 => Some(2),
                     2 => Some(4),
-                    _ => None
+                    _ => None,
                 },
                 dpclka_cfgcr0_clock_off: match i {
                     // DDI
@@ -528,7 +516,7 @@ impl Ddi {
                     6 => Some(1 << 21),
                     7 => Some(1 << 22),
                     8 => Some(1 << 23),
-                    _ => None
+                    _ => None,
                 },
                 //TODO: link to docs
                 gmbus_pin_pair: match i {
@@ -543,7 +531,7 @@ impl Ddi {
                     6 => Some(12),
                     7 => Some(13),
                     8 => Some(14),
-                    _ => None
+                    _ => None,
                 },
                 // IHD-OS-TGL-Vol 12-1.22-Rev2.0 GMBUS and GPIO
                 gpio_port: match *name {
@@ -556,7 +544,7 @@ impl Ddi {
                     "USBC4" => Some(GpioPort::Port12),
                     "USBC5" => Some(GpioPort::Port13),
                     "USBC6" => Some(GpioPort::Port14),
-                    _ => None
+                    _ => None,
                 },
                 // IHD-OS-TGL-Vol 2c-12.21 PWR_WELL_CTL_AUX
                 pwr_well_ctl_aux_request: 2 << (i * 2),
@@ -569,7 +557,7 @@ impl Ddi {
                     0 => Some(1 << 16),
                     1 => Some(1 << 17),
                     2 => Some(1 << 18),
-                    _ => None
+                    _ => None,
                 },
                 // IHD-OS-TGL-Vol 2c-12.21 TRANS_CLK_SEL
                 transcoder_index: Some((i + 1) as u32),
@@ -580,17 +568,10 @@ impl Ddi {
 
     pub fn alchemist(gttmm: &Arc<MmioRegion>) -> Result<Vec<Self>> {
         let mut ddis = Vec::new();
-        for (i, name) in [
-            "A",
-            "B",
-            "C",
-            "USBC1",
-            "USBC2",
-            "USBC3",
-            "USBC4",
-            "D",
-            "E",
-        ].iter().enumerate() {
+        for (i, name) in ["A", "B", "C", "USBC1", "USBC2", "USBC3", "USBC4", "D", "E"]
+            .iter()
+            .enumerate()
+        {
             let port_base = match i {
                 0 => Some(0x162000),
                 1 => Some(0x6C000),
@@ -619,7 +600,7 @@ impl Ddi {
                     0 => Some(0),
                     1 => Some(2),
                     2 => Some(4),
-                    _ => None
+                    _ => None,
                 },
                 dpclka_cfgcr0_clock_off: match i {
                     // DDI
@@ -633,7 +614,7 @@ impl Ddi {
                     6 => Some(1 << 21),
                     7 => Some(1 << 22),
                     8 => Some(1 << 23),
-                    _ => None
+                    _ => None,
                 },
                 //TODO: link to docs
                 gmbus_pin_pair: match i {
@@ -648,7 +629,7 @@ impl Ddi {
                     6 => Some(12),
                     7 => Some(13),
                     8 => Some(14),
-                    _ => None
+                    _ => None,
                 },
                 // IHD-OS-ACM-Vol 12-3.23 GMBUS and GPIO
                 gpio_port: match *name {
@@ -657,7 +638,7 @@ impl Ddi {
                     "C" => Some(GpioPort::Port3),
                     "D" => Some(GpioPort::Port4),
                     "USBC1" => Some(GpioPort::Port9),
-                    _ => None
+                    _ => None,
                 },
                 // IHD-OS-ACM-Vol 2c-3.23 PWR_WELL_CTL_AUX
                 pwr_well_ctl_aux_request: 2 << (i * 2),
@@ -670,7 +651,7 @@ impl Ddi {
                     0 => Some(1 << 16),
                     1 => Some(1 << 17),
                     2 => Some(1 << 18),
-                    _ => None
+                    _ => None,
                 },
                 // IHD-OS-ACM-Vol 2c-3.23 TRANS_CLK_SEL
                 transcoder_index: Some((i + 1) as u32),

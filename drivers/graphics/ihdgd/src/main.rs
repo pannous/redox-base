@@ -1,9 +1,12 @@
 use driver_graphics::GraphicsScheme;
 use event::{user_data, EventQueue};
 use inputd::DisplayHandle;
-use pcid_interface::{PciFunctionHandle, irq_helpers::pci_allocate_interrupt_vector};
+use pcid_interface::{irq_helpers::pci_allocate_interrupt_vector, PciFunctionHandle};
 use redox_scheme::{RequestKind, SignalBehavior, Socket};
-use std::{io::{Read, Write}, os::fd::AsRawFd};
+use std::{
+    io::{Read, Write},
+    os::fd::AsRawFd,
+};
 
 mod device;
 use self::device::Device;

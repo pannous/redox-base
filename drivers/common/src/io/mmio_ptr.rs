@@ -154,4 +154,3 @@ impl Io for MmioPtr<u64> {
         }
     }
 }
-

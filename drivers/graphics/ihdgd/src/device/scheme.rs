@@ -91,7 +91,13 @@ pub struct DeviceFb {
 }
 
 impl DeviceFb {
-    pub unsafe fn new(virt: *mut u32, width: usize, height: usize, stride: usize, clear: bool) -> Self {
+    pub unsafe fn new(
+        virt: *mut u32,
+        width: usize,
+        height: usize,
+        stride: usize,
+        clear: bool,
+    ) -> Self {
         let onscreen = ptr::slice_from_raw_parts_mut(virt, stride * height);
         if clear {
             (&mut *onscreen).fill(0);

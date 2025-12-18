@@ -1,7 +1,7 @@
 use common::io::{Io, MmioPtr};
 use embedded_hal::{
+    blocking::i2c::{self, Operation, SevenBitAddress},
     digital,
-    blocking::i2c::{self, SevenBitAddress, Operation},
 };
 
 use super::MmioRegion;

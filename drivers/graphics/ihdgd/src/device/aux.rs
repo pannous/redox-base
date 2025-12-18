@@ -1,10 +1,10 @@
 use common::{io::Io, timeout::Timeout};
-use embedded_hal::blocking::i2c::{self, SevenBitAddress, Operation, Transactional};
+use embedded_hal::blocking::i2c::{self, Operation, SevenBitAddress, Transactional};
 
 use super::ddi::*;
 
 pub struct Aux<'a> {
-    ddi: &'a mut Ddi
+    ddi: &'a mut Ddi,
 }
 
 impl<'a> Aux<'a> {
@@ -40,8 +40,8 @@ impl<'a> Transactional for Aux<'a> {
             match op {
                 Operation::Read(_) => {
                     header |= 1 << 4;
-                },
-                Operation::Write(_) => ()
+                }
+                Operation::Write(_) => (),
             }
             if (i + 1) < ops_len {
                 // Middle of transaction
@@ -100,7 +100,10 @@ impl<'a> Transactional for Aux<'a> {
             let timeout = Timeout::from_secs(1);
             while self.ddi.aux_ctl.readf(DDI_AUX_CTL_BUSY) {
                 timeout.run().map_err(|()| {
-                    log::debug!("AUX I2C transaction wait timeout 0x{:08X}", self.ddi.aux_ctl.read());
+                    log::debug!(
+                        "AUX I2C transaction wait timeout 0x{:08X}",
+                        self.ddi.aux_ctl.read()
+                    );
                     ()
                 })?;
             }
@@ -110,11 +113,11 @@ impl<'a> Transactional for Aux<'a> {
             if (v & DDI_AUX_CTL_TIMEOUT_ERROR) != 0 {
                 log::debug!("AUX I2C transaction timeout error");
                 return Err(());
-            } 
+            }
             if (v & DDI_AUX_CTL_RECEIVE_ERROR) != 0 {
                 log::debug!("AUX I2C transaction receive error");
                 return Err(());
-            } 
+            }
             if (v & DDI_AUX_CTL_DONE) == 0 {
                 log::debug!("AUX I2C transaction done not set");
                 return Err(());
@@ -142,7 +145,7 @@ impl<'a> Transactional for Aux<'a> {
                         }
                     }
                 }
-                Operation::Write(_) => ()
+                Operation::Write(_) => (),
             }
         }
 
@@ -153,14 +156,14 @@ impl<'a> Transactional for Aux<'a> {
 impl<'a> i2c::WriteRead for Aux<'a> {
     type Error = ();
     fn write_read(
-        &mut self, 
-        addr7: SevenBitAddress, 
-        bytes: &[u8], 
-        buffer: &mut [u8]
+        &mut self,
+        addr7: SevenBitAddress,
+        bytes: &[u8],
+        buffer: &mut [u8],
     ) -> Result<(), ()> {
-        self.exec(addr7, &mut [
-            Operation::Write(bytes),
-            Operation::Read(buffer),
-        ])
+        self.exec(
+            addr7,
+            &mut [Operation::Write(bytes), Operation::Read(buffer)],
+        )
     }
 }

@@ -1,4 +1,3 @@
-
 use common::io::{Io, MmioPtr};
 use syscall::error::{Error, Result, EIO};
 
@@ -52,7 +51,11 @@ impl Dpll {
         eprintln!();
     }
 
-    pub fn set_freq_hdmi(&mut self, mut ref_freq: u64, timing: &edid::DetailedTiming) -> Result<()> {
+    pub fn set_freq_hdmi(
+        &mut self,
+        mut ref_freq: u64,
+        timing: &edid::DetailedTiming,
+    ) -> Result<()> {
         // IHD-OS-TGL-Vol 12-1.22-Rev2.0 "Formula for HDMI Mode DPLL Programming"
         const KHz: u64 = 1_000;
         const MHz: u64 = KHz * 1_000;
@@ -91,17 +94,12 @@ impl Dpll {
                 (2, DPLL_CFGCR1_KDIV_2),
                 (3, DPLL_CFGCR1_KDIV_3),
             ] {
-                let qdiv_range = if kdiv == 2 {
-                    1..=0xFF
-                } else {
-                    1..=1
-                };
+                let qdiv_range = if kdiv == 2 { 1..=0xFF } else { 1..=1 };
                 for qdiv in qdiv_range {
                     let qdiv_reg = if qdiv == 1 {
                         0
                     } else {
-                        ((qdiv as u32) << DPLL_CFGCR1_QDIV_RATIO_SHIFT) |
-                        DPLL_CFGCR1_QDIV_MODE
+                        ((qdiv as u32) << DPLL_CFGCR1_QDIV_RATIO_SHIFT) | DPLL_CFGCR1_QDIV_MODE
                     };
 
                     let dco = pll_freq * pdiv * kdiv * qdiv;
@@ -140,17 +138,17 @@ impl Dpll {
         {
             let dco_int = setting.dco / ref_freq;
             let dco_fract = ((setting.dco - (dco_int * ref_freq)) << 15) / ref_freq;
-            self.cfgcr0.write(((dco_fract as u32) << 10) | (dco_int as u32));
+            self.cfgcr0
+                .write(((dco_fract as u32) << 10) | (dco_int as u32));
         }
 
         // Configure DPLL_CFGCR1 to set the dividers
         {
             let mut v = self.cfgcr1.read();
-            let mask =
-                DPLL_CFGCR1_QDIV_RATIO_MASK |
-                DPLL_CFGCR1_QDIV_MODE |
-                DPLL_CFGCR1_KDIV_MASK |
-                DPLL_CFGCR1_PDIV_MASK;
+            let mask = DPLL_CFGCR1_QDIV_RATIO_MASK
+                | DPLL_CFGCR1_QDIV_MODE
+                | DPLL_CFGCR1_KDIV_MASK
+                | DPLL_CFGCR1_PDIV_MASK;
             v &= !mask;
             v |= (setting.cfgcr1 & mask);
             self.cfgcr1.write(v);
@@ -162,7 +160,6 @@ impl Dpll {
 
         Ok(())
     }
-
 
     pub fn tigerlake(gttmm: &MmioRegion) -> Result<Vec<Self>> {
         let mut dplls = Vec::new();

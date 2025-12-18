@@ -174,14 +174,14 @@ impl Transcoder {
                 // IHD-OS-KBL-Vol 2c-1.17 TRANS_VBLANK
                 vblank: unsafe { gttmm.mmio(0x60010 + i * 0x1000)? },
                 // N/A
-                vrr_ctl: None, 
-                vrr_flipline: None, 
-                vrr_status: None, 
-                vrr_status2: None, 
-                vrr_vmax: None, 
-                vrr_vmaxshift: None, 
-                vrr_vmin: None, 
-                vrr_vtotal_prev: None, 
+                vrr_ctl: None,
+                vrr_flipline: None,
+                vrr_status: None,
+                vrr_status2: None,
+                vrr_vmax: None,
+                vrr_vmaxshift: None,
+                vrr_vmin: None,
+                vrr_vtotal_prev: None,
                 // IHD-OS-KBL-Vol 2c-1.17 TRANS_VSYNC
                 vsync: unsafe { gttmm.mmio(0x60014 + i * 0x1000)? },
                 // IHD-OS-KBL-Vol 2c-1.17 TRANS_VSYNCSHIFT

@@ -1,4 +1,7 @@
-use common::{io::{Io, MmioPtr}, timeout::Timeout};
+use common::{
+    io::{Io, MmioPtr},
+    timeout::Timeout,
+};
 use embedded_hal::prelude::*;
 use pcid_interface::PciFunction;
 use range_alloc::RangeAllocator;
@@ -60,11 +63,7 @@ pub struct ChangeDetect {
 impl ChangeDetect {
     fn new(name: &'static str, reg: MmioPtr<u32>) -> Self {
         let value = reg.read();
-        Self {
-            name,
-            reg,
-            value,
-        }
+        Self { name, reg, value }
     }
 
     fn log(&self) {
@@ -122,19 +121,8 @@ pub struct MmioRegion {
 
 impl MmioRegion {
     fn new(phys: usize, size: usize, memory_type: common::MemoryType) -> Result<Self> {
-        let virt = unsafe {
-            common::physmap(
-                phys,
-                size,
-                common::Prot::RW,
-                memory_type,
-            )? as usize
-        };
-        Ok(Self {
-            phys,
-            virt,
-            size,
-        })
+        let virt = unsafe { common::physmap(phys, size, common::Prot::RW, memory_type)? as usize };
+        Ok(Self { phys, virt, size })
     }
 
     unsafe fn mmio(&self, offset: usize) -> Result<MmioPtr<u32>> {
@@ -244,7 +232,11 @@ impl Device {
 
         let gttmm = {
             let (phys, size) = func.bars[0].expect_mem();
-            Arc::new(MmioRegion::new(phys, size, common::MemoryType::Uncacheable)?)
+            Arc::new(MmioRegion::new(
+                phys,
+                size,
+                common::MemoryType::Uncacheable,
+            )?)
         };
         log::info!("GTTMM {:X?}", gttmm);
         let gm = {
@@ -281,7 +273,7 @@ impl Device {
                         imr: unsafe { gttmm.mmio(0xC4004)? },
                         iir: unsafe { gttmm.mmio(0xC4008)? },
                         ier: unsafe { gttmm.mmio(0xC400C)? },
-                    }
+                    },
                 };
 
                 // IHD-OS-KBL-Vol 12-1.17
@@ -301,15 +293,9 @@ impl Device {
                 const DSSM_REF_FREQ_38_4_MHZ: u32 = 0b010 << 29;
                 const DSSM_REF_FREQ_MASK: u32 = 0b111 << 29;
                 ref_freq = match dssm.read() & DSSM_REF_FREQ_MASK {
-                    DSSM_REF_FREQ_24_MHZ => {
-                        24_000_000
-                    },
-                    DSSM_REF_FREQ_19_2_MHZ => {
-                        19_200_000
-                    },
-                    DSSM_REF_FREQ_38_4_MHZ => {
-                        38_400_000
-                    },
+                    DSSM_REF_FREQ_24_MHZ => 24_000_000,
+                    DSSM_REF_FREQ_19_2_MHZ => 19_200_000,
+                    DSSM_REF_FREQ_38_4_MHZ => 38_400_000,
                     unknown => {
                         log::error!("unknown DSSM reference frequency {}", unknown);
                         return Err(Error::new(EIO));
@@ -336,7 +322,7 @@ impl Device {
                         imr: unsafe { gttmm.mmio(0xC4004)? },
                         iir: unsafe { gttmm.mmio(0xC4008)? },
                         ier: unsafe { gttmm.mmio(0xC400C)? },
-                    }
+                    },
                 };
             }
         }
@@ -354,14 +340,14 @@ impl Device {
                 pipes = Pipe::kabylake(&gttmm)?;
                 power_wells = PowerWells::kabylake(&gttmm)?;
                 transcoders = Transcoder::kabylake(&gttmm)?;
-            },
+            }
             DeviceKind::TigerLake => {
                 ddis = Ddi::tigerlake(&gttmm)?;
                 dplls = Dpll::tigerlake(&gttmm)?;
                 pipes = Pipe::tigerlake(&gttmm)?;
                 power_wells = PowerWells::tigerlake(&gttmm)?;
                 transcoders = Transcoder::tigerlake(&gttmm)?;
-            },
+            }
             DeviceKind::Alchemist => {
                 // Many registers are identical to tigerlake
                 dplls = Dpll::tigerlake(&gttmm)?;
@@ -372,7 +358,6 @@ impl Device {
                 power_wells = PowerWells::alchemist(&gttmm)?;
             }
         }
-
 
         let mut this = Self {
             kind,
@@ -407,10 +392,17 @@ impl Device {
                     let buf_cfg = plane.buf_cfg.read();
                     let buffer_start = buf_cfg & 0x7FF;
                     let buffer_end = (buf_cfg >> 16) & 0x7FF;
-                    self.alloc_buffers.allocate_exact_range(buffer_start .. (buffer_end + 1)).map_err(|err| {
-                        log::warn!("failed to allocate pre-existing buffer blocks {} to {}: {:?}", buffer_start, buffer_end, err);
-                        Error::new(EIO)
-                    })?;
+                    self.alloc_buffers
+                        .allocate_exact_range(buffer_start..(buffer_end + 1))
+                        .map_err(|err| {
+                            log::warn!(
+                                "failed to allocate pre-existing buffer blocks {} to {}: {:?}",
+                                buffer_start,
+                                buffer_end,
+                                err
+                            );
+                            Error::new(EIO)
+                        })?;
 
                     let size = plane.size.read();
                     let width = (size & 0xFFFF) + 1;
@@ -432,7 +424,7 @@ impl Device {
                             width as usize,
                             height as usize,
                             stride as usize,
-                            false
+                            false,
                         )
                     });
                 }
@@ -447,7 +439,10 @@ impl Device {
 
         self.dump();
 
-        log::info!("device initialized with {} framebuffers", self.framebuffers.len());
+        log::info!(
+            "device initialized with {} framebuffers",
+            self.framebuffers.len()
+        );
 
         // Enable SDE interrupts
         {
@@ -466,7 +461,9 @@ impl Device {
             sde_int.imr.write(0);
         }
         // Enable display interrupts
-        self.int.display_int_ctl.write(self.int.display_int_ctl_enable);
+        self.int
+            .display_int_ctl
+            .write(self.int.display_int_ctl_enable);
         if let Some(gfx_mstr_intr) = &mut self.int.gfx_mstr_intr {
             // Enable graphics interrupts
             gfx_mstr_intr.write(self.int.gfx_mstr_intr_enable);
@@ -528,7 +525,8 @@ impl Device {
             //TODO: the request can be shared by multiple DDIs
             let pwr_well_ctl_aux_request = ddi.pwr_well_ctl_aux_request;
             let pwr_well_ctl_aux_state = ddi.pwr_well_ctl_aux_state;
-            let mut pwr_well_ctl_aux = unsafe { MmioPtr::new(self.power_wells.ctl_aux.as_mut_ptr()) };
+            let mut pwr_well_ctl_aux =
+                unsafe { MmioPtr::new(self.power_wells.ctl_aux.as_mut_ptr()) };
             let _pwr_guard = CallbackGuard::new(
                 &mut pwr_well_ctl_aux,
                 |pwr_well_ctl_aux| {
@@ -546,17 +544,13 @@ impl Device {
                 |pwr_well_ctl_aux| {
                     // Disable aux power
                     pwr_well_ctl_aux.writef(pwr_well_ctl_aux_request, false);
-                }
+                },
             )?;
 
             let mut edid_data = [0; 128];
-            Aux::new(ddi).write_read(
-                0x50,
-                &[0x00],
-                &mut edid_data
-            ).map_err(|_err| {
-                Error::new(EIO)
-            })?;
+            Aux::new(ddi)
+                .write_read(0x50, &[0x00], &mut edid_data)
+                .map_err(|_err| Error::new(EIO))?;
 
             Ok(edid_data)
         };
@@ -567,13 +561,10 @@ impl Device {
             };
 
             let mut edid_data = [0; 128];
-            self.gmbus.pin_pair(pin_pair).write_read(
-                0x50,
-                &[0x00],
-                &mut edid_data
-            ).map_err(|_err| {
-                Error::new(EIO)
-            })?;
+            self.gmbus
+                .pin_pair(pin_pair)
+                .write_read(0x50, &[0x00], &mut edid_data)
+                .map_err(|_err| Error::new(EIO))?;
 
             Ok(edid_data)
         };
@@ -588,14 +579,10 @@ impl Device {
             bitbang_hal::i2c::I2cBB::new(
                 unsafe { port.clock(&self.gttmm)? },
                 unsafe { port.data(&self.gttmm)? },
-                HalTimer::new(Duration::from_secs_f64(1.0 / i2c_freq))
-            ).write_read(
-                0x50,
-                &[0x00],
-                &mut edid_data
-            ).map_err(|_err| {
-                Error::new(EIO)
-            })?;
+                HalTimer::new(Duration::from_secs_f64(1.0 / i2c_freq)),
+            )
+            .write_read(0x50, &[0x00], &mut edid_data)
+            .map_err(|_err| Error::new(EIO))?;
 
             Ok(edid_data)
         };
@@ -611,7 +598,11 @@ impl Device {
                         match gpio_read_edid(ddi) {
                             Ok(edid_data) => ("GPIO", edid_data),
                             Err(err) => {
-                                log::debug!("DDI {} failed to read EDID from GPIO: {}", ddi.name, err);
+                                log::debug!(
+                                    "DDI {} failed to read EDID from GPIO: {}",
+                                    ddi.name,
+                                    err
+                                );
                                 // Will try again but not fail the driver
                                 return Ok(false);
                             }
@@ -625,9 +616,14 @@ impl Device {
             Ok(edid) => {
                 log::info!("DDI {} EDID from {}: {:?}", ddi.name, source, edid);
                 edid
-            },
+            }
             Err(err) => {
-                log::warn!("DDI {} failed to parse EDID from {}: {:?}", ddi.name, source, err);
+                log::warn!(
+                    "DDI {} failed to parse EDID from {}: {:?}",
+                    ddi.name,
+                    source,
+                    err
+                );
                 // Will try again but not fail the driver
                 return Ok(false);
             }
@@ -644,7 +640,11 @@ impl Device {
             }
         }
         let Some(timing) = timing_opt else {
-            log::warn!("DDI {} EDID from {} missing detailed timing", ddi.name, source);
+            log::warn!(
+                "DDI {} EDID from {} missing detailed timing",
+                ddi.name,
+                source
+            );
             // Will try again but not fail the driver
             return Ok(false);
         };
@@ -655,16 +655,18 @@ impl Device {
             // Power wells should already be enabled
 
             //TODO: Type-C needs aux power enabled and max lanes set
-            
+
             // Enable port PLL without SSC. Not required on Type-C ports
             if let Some(clock_shift) = ddi.dpclka_cfgcr0_clock_shift {
                 // Find free DPLL
-                let dpll = self.dplls.iter_mut().find(|dpll| {
-                    !dpll.enable.readf(DPLL_ENABLE_ENABLE)
-                }).ok_or_else(|| {
-                    log::error!("failed to find free DPLL");
-                    Error::new(EIO)
-                })?;
+                let dpll = self
+                    .dplls
+                    .iter_mut()
+                    .find(|dpll| !dpll.enable.readf(DPLL_ENABLE_ENABLE))
+                    .ok_or_else(|| {
+                        log::error!("failed to find free DPLL");
+                        Error::new(EIO)
+                    })?;
 
                 // DPLL power guard
                 let mut dpll_enable = unsafe { MmioPtr::new(dpll.enable.as_mut_ptr()) };
@@ -686,7 +688,7 @@ impl Device {
                     |dpll_enable| {
                         // Disable DPLL power
                         dpll_enable.writef(DPLL_ENABLE_POWER_ENABLE, false);
-                    }
+                    },
                 )?;
 
                 match input {
@@ -696,7 +698,7 @@ impl Device {
 
                         // Configure DPLL frequency
                         dpll.set_freq_hdmi(self.ref_freq, &timing)?;
-                    },
+                    }
                     VideoInput::Dp => {
                         log::warn!("DPLL for DisplayPort not implemented");
                         return Err(Error::new(EIO));
@@ -746,7 +748,8 @@ impl Device {
             //TODO: skip if TBT
             let pwr_well_ctl_ddi_request = ddi.pwr_well_ctl_ddi_request;
             let pwr_well_ctl_ddi_state = ddi.pwr_well_ctl_ddi_state;
-            let mut pwr_well_ctl_ddi = unsafe { MmioPtr::new(self.power_wells.ctl_ddi.as_mut_ptr()) };
+            let mut pwr_well_ctl_ddi =
+                unsafe { MmioPtr::new(self.power_wells.ctl_ddi.as_mut_ptr()) };
             let pwr_guard = CallbackGuard::new(
                 &mut pwr_well_ctl_ddi,
                 |pwr_well_ctl_ddi| {
@@ -764,7 +767,7 @@ impl Device {
                 |pwr_well_ctl_ddi| {
                     // Disable IO power
                     pwr_well_ctl_ddi.writef(pwr_well_ctl_ddi_request, false);
-                }
+                },
             )?;
 
             //TODO: Type-C DP_MODE
@@ -788,27 +791,37 @@ impl Device {
 
                 // Enable pipe and transcoder power wells
                 self.power_wells.enable_well_by_pipe(pipe.name)?;
-                self.power_wells.enable_well_by_transcoder(transcoder.name)?;
+                self.power_wells
+                    .enable_well_by_transcoder(transcoder.name)?;
 
                 // Configure transcoder clock select
                 if let Some(transcoder_index) = ddi.transcoder_index {
-                    transcoder.clk_sel.write(transcoder_index << transcoder.clk_sel_shift);
+                    transcoder
+                        .clk_sel
+                        .write(transcoder_index << transcoder.clk_sel_shift);
                 }
 
                 // Set pipe bottom color to blue for debugging
                 pipe.bottom_color.write(0x3FF);
 
-                // Configure and enable planes 
+                // Configure and enable planes
                 //TODO: THIS IS HACKY
                 if let Some(plane) = pipe.planes.first_mut() {
                     //TODO: enable DBUF if more buffers needed
                     //TODO: more blocks would mean better power usage
                     // Minimum is 8 blocks for linear planes, 160 blocks is recommended for pre-OS init
                     let buffer_size = 160;
-                    let buffer = self.alloc_buffers.allocate_range(buffer_size).map_err(|err| {
-                        log::warn!("failed to allocate {} buffer blocks: {:?}", buffer_size, err);
-                        Error::new(EIO)
-                    })?;
+                    let buffer = self
+                        .alloc_buffers
+                        .allocate_range(buffer_size)
+                        .map_err(|err| {
+                            log::warn!(
+                                "failed to allocate {} buffer blocks: {:?}",
+                                buffer_size,
+                                err
+                            );
+                            Error::new(EIO)
+                        })?;
                     plane.buf_cfg.write(buffer.start | (buffer.end << 16));
 
                     let width = timing.horizontal_active_pixels as u32;
@@ -822,18 +835,21 @@ impl Device {
 
                     //TODO: how is memory allocated for PLANE_SURF?
                     let surf_size = (stride * height * 4).next_multiple_of(4096);
-                    let surf = self.alloc_surfaces.allocate_range(surf_size).map_err(|err| {
-                        log::warn!("failed to allocate surface of size {}: {:?}", surf_size, err);
-                        Error::new(EIO)
-                    })?;
+                    let surf = self
+                        .alloc_surfaces
+                        .allocate_range(surf_size)
+                        .map_err(|err| {
+                            log::warn!(
+                                "failed to allocate surface of size {}: {:?}",
+                                surf_size,
+                                err
+                            );
+                            Error::new(EIO)
+                        })?;
                     plane.surf.write(surf.start);
 
                     //TODO: correct watermark calculation
-                    plane.wm[0].write(
-                        PLANE_WM_ENABLE |
-                        (2 << PLANE_WM_LINES_SHIFT) |
-                        buffer_size
-                    );
+                    plane.wm[0].write(PLANE_WM_ENABLE | (2 << PLANE_WM_LINES_SHIFT) | buffer_size);
                     for i in 1..plane.wm.len() {
                         plane.wm[i].writef(PLANE_WM_ENABLE, false);
                     }
@@ -845,7 +861,7 @@ impl Device {
                             width as usize,
                             height as usize,
                             stride as usize,
-                            true
+                            true,
                         )
                     });
 
@@ -855,10 +871,9 @@ impl Device {
                     }
 
                     //TODO: more PLANE_CTL bits
-                    plane.ctl.write(
-                        PLANE_CTL_ENABLE |
-                        plane.ctl_source_rgb_8888
-                    );
+                    plane
+                        .ctl
+                        .write(PLANE_CTL_ENABLE | plane.ctl_source_rgb_8888);
                 }
 
                 //TODO: VGA and panel fitter steps?
@@ -868,34 +883,32 @@ impl Device {
 
                 // Configure and enable TRANS_DDI_FUNC_CTL
                 {
-                    let mut ddi_func_ctl = 
-                        TRANS_DDI_FUNC_CTL_ENABLE |
+                    let mut ddi_func_ctl = TRANS_DDI_FUNC_CTL_ENABLE |
                         //TODO: allow different bits per color
                         TRANS_DDI_FUNC_CTL_BPC_8 |
                         //TODO: correct port width selection
                         TRANS_DDI_FUNC_CTL_PORT_WIDTH_4;
-                    
+
                     if let Some(transcoder_index) = ddi.transcoder_index {
                         ddi_func_ctl |= (transcoder_index << transcoder.ddi_func_ctl_ddi_shift);
                     }
-                    
+
                     match input {
                         VideoInput::Hdmi => {
                             ddi_func_ctl |= TRANS_DDI_FUNC_CTL_MODE_HDMI;
 
                             // Set HDMI scrambling and high TMDS char rate based on symbol rate > 340 MHz
                             if timing.pixel_clock > 340_000 {
-                                ddi_func_ctl |= 
-                                    transcoder.ddi_func_ctl_hdmi_scrambling |
-                                    transcoder.ddi_func_ctl_high_tmds_char_rate;
+                                ddi_func_ctl |= transcoder.ddi_func_ctl_hdmi_scrambling
+                                    | transcoder.ddi_func_ctl_high_tmds_char_rate;
                             }
-                        },
+                        }
                         VideoInput::Dp => {
                             //TODO: MST
                             ddi_func_ctl |= TRANS_DDI_FUNC_CTL_MODE_DP_SST;
                         }
                     }
-                    
+
                     match (timing.features >> 3) & 0b11 {
                         // Digital sync, separate
                         0b11 => {
@@ -905,7 +918,7 @@ impl Device {
                             if (timing.features & (1 << 1)) != 0 {
                                 ddi_func_ctl |= TRANS_DDI_FUNC_CTL_SYNC_POLARITY_HSHIGH;
                             }
-                        },
+                        }
                         unsupported => {
                             log::warn!("unsupported sync {:#x}", unsupported);
                         }
@@ -925,7 +938,11 @@ impl Device {
                 let timeout = Timeout::from_millis(100);
                 while !transcoder.conf.readf(TRANS_CONF_STATE) {
                     timeout.run().map_err(|()| {
-                        log::error!("timeout on DDI {} transcoder {} enable", ddi.name, transcoder.name);
+                        log::error!(
+                            "timeout on DDI {} transcoder {} enable",
+                            ddi.name,
+                            transcoder.name
+                        );
                         Error::new(EIO)
                     })?;
                 }
@@ -937,7 +954,7 @@ impl Device {
                 match input {
                     VideoInput::Hdmi => {
                         ddi.voltage_swing_hdmi(&self.gttmm, &timing)?;
-                    },
+                    }
                     VideoInput::Dp => {
                         //TODO ddi.voltage_swing_dp(&self.gttmm)?;
                         log::error!("voltage swing for DP not implemented");
@@ -982,12 +999,11 @@ impl Device {
             let input = match edid_data[20] & EDID_VIDEO_INPUT_MASK {
                 //TODO: how to accurately discover input type?
                 //TODO: HDMI often shows up as undefined, do others?
-                EDID_VIDEO_INPUT_UNDEFINED | EDID_VIDEO_INPUT_DVI | EDID_VIDEO_INPUT_HDMI_A | EDID_VIDEO_INPUT_HDMI_B => {
-                    VideoInput::Hdmi
-                },
-                EDID_VIDEO_INPUT_DP => {
-                    VideoInput::Dp
-                }
+                EDID_VIDEO_INPUT_UNDEFINED
+                | EDID_VIDEO_INPUT_DVI
+                | EDID_VIDEO_INPUT_HDMI_A
+                | EDID_VIDEO_INPUT_HDMI_B => VideoInput::Hdmi,
+                EDID_VIDEO_INPUT_DP => VideoInput::Dp,
                 unknown => {
                     log::warn!("EDID video input 0x{:02X} not supported", unknown);
                     return Err(Error::new(EIO));
@@ -997,7 +1013,7 @@ impl Device {
             match modeset(ddi, input) {
                 Ok(()) => {
                     log::info!("DDI {} modeset {:?} finished", ddi.name, input);
-                },
+                }
                 Err(err) => {
                     log::warn!("DDI {} modeset {:?} failed: {}", ddi.name, input, err);
                     // Will try again but not fail the driver
@@ -1071,7 +1087,7 @@ impl Device {
                         match self.probe_ddi(ddi_name) {
                             Ok(true) => {
                                 break;
-                            },
+                            }
                             Ok(false) => {
                                 log::warn!("timeout probing {}", ddi_name);
                             }

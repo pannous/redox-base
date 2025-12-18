@@ -1,5 +1,8 @@
-use common::{io::{Io, MmioPtr}, timeout::Timeout};
-use embedded_hal::blocking::i2c::{self, SevenBitAddress, Operation, Transactional};
+use common::{
+    io::{Io, MmioPtr},
+    timeout::Timeout,
+};
+use embedded_hal::blocking::i2c::{self, Operation, SevenBitAddress, Transactional};
 
 use super::MmioRegion;
 
@@ -27,14 +30,14 @@ impl Gmbus {
                 gttmm.mmio(0xC510C)?,
                 gttmm.mmio(0xC5110)?,
                 gttmm.mmio(0xC5120)?,
-            ]
+            ],
         })
     }
 
     pub fn pin_pair<'a>(&'a mut self, pin_pair: u8) -> GmbusPinPair<'a> {
         GmbusPinPair {
             regs: &mut self.regs,
-            pin_pair
+            pin_pair,
         }
     }
 }
@@ -75,12 +78,12 @@ impl<'a> Transactional for GmbusPinPair<'a> {
                 return Err(());
             }
             self.regs[1].write(
-                GMBUS1_SW_RDY |
-                GMBUS1_CYCLE_INDEX |
-                GMBUS1_CYCLE_WAIT |
-                (size << GMBUS1_SIZE_SHIFT) |
-                (index as u32) << GMBUS1_INDEX_SHIFT |
-                (addr8 as u32)
+                GMBUS1_SW_RDY
+                    | GMBUS1_CYCLE_INDEX
+                    | GMBUS1_CYCLE_WAIT
+                    | (size << GMBUS1_SIZE_SHIFT)
+                    | (index as u32) << GMBUS1_INDEX_SHIFT
+                    | (addr8 as u32),
             );
 
             // Perform transaction
@@ -92,7 +95,10 @@ impl<'a> Transactional for GmbusPinPair<'a> {
                             let timeout = Timeout::from_millis(10);
                             while !self.regs[2].readf(GMBUS2_HW_RDY) {
                                 timeout.run().map_err(|()| {
-                                    log::debug!("timeout on GMBUS read 0x{:08x}", self.regs[2].read());
+                                    log::debug!(
+                                        "timeout on GMBUS read 0x{:08x}",
+                                        self.regs[2].read()
+                                    );
                                     ()
                                 })?;
                             }
@@ -101,10 +107,10 @@ impl<'a> Transactional for GmbusPinPair<'a> {
                         let bytes = self.regs[3].read().to_le_bytes();
                         chunk.copy_from_slice(&bytes[..chunk.len()]);
                     }
-                },
+                }
                 Operation::Write(buf) => {
                     log::warn!("TODO: GMBUS WRITE");
-                    return Err(())
+                    return Err(());
                 }
             }
         }
@@ -131,14 +137,14 @@ impl<'a> Transactional for GmbusPinPair<'a> {
 impl<'a> i2c::WriteRead for GmbusPinPair<'a> {
     type Error = ();
     fn write_read(
-        &mut self, 
-        addr7: SevenBitAddress, 
-        bytes: &[u8], 
-        buffer: &mut [u8]
+        &mut self,
+        addr7: SevenBitAddress,
+        bytes: &[u8],
+        buffer: &mut [u8],
     ) -> Result<(), ()> {
-        self.exec(addr7, &mut [
-            Operation::Write(bytes),
-            Operation::Read(buffer),
-        ])
+        self.exec(
+            addr7,
+            &mut [Operation::Write(bytes), Operation::Read(buffer)],
+        )
     }
 }

@@ -90,13 +90,17 @@ fn handle_parsed_header(
         let addr = data & ROM_ADDRESS_MASK;
 
         let size = unsafe {
-            pcie.write(pci_address, offset, ROM_ADDRESS_MASK | if enabled { ROM_ENABLED } else { 0 });
+            pcie.write(
+                pci_address,
+                offset,
+                ROM_ADDRESS_MASK | if enabled { ROM_ENABLED } else { 0 },
+            );
             let mut readback = pcie.read(pci_address, offset);
             pcie.write(pci_address, offset, data);
 
             /*
-                * If the entire readback value is zero, the BAR is not implemented, so we return `None`.
-                */
+             * If the entire readback value is zero, the BAR is not implemented, so we return `None`.
+             */
             if readback == 0x0 {
                 return None;
             }
@@ -105,7 +109,11 @@ fn handle_parsed_header(
             1 << readback.trailing_zeros()
         };
 
-        Some(PciRom { addr, size, enabled })
+        Some(PciRom {
+            addr,
+            size,
+            enabled,
+        })
     };
 
     let rom = get_rom(endpoint_header.header().address(), 0x30);

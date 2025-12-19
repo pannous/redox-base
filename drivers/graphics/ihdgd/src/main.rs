@@ -30,7 +30,8 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
 
     log::info!("IHDG {}", pci_config.func.display());
 
-    let device = Device::new(&pci_config.func).expect("ihdgd: failed to initialize device");
+    let device = Device::new(&mut pcid_handle, &pci_config.func)
+        .expect("ihdgd: failed to initialize device");
 
     let irq_file = pci_allocate_interrupt_vector(&mut pcid_handle, "ihdgd");
 

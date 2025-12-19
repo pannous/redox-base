@@ -3,13 +3,15 @@ use common::{
     timeout::Timeout,
 };
 use embedded_hal::prelude::*;
-use pcid_interface::PciFunction;
+use pcid_interface::{PciFunction, PciFunctionHandle};
 use range_alloc::RangeAllocator;
 use std::{collections::VecDeque, mem, sync::Arc, time::Duration};
 use syscall::error::{Error, Result, EIO, ENODEV, ERANGE};
 
 mod aux;
 use self::aux::*;
+mod bios;
+use self::bios::*;
 mod ddi;
 use self::ddi::*;
 mod dpll;
@@ -154,6 +156,7 @@ pub struct Device {
     kind: DeviceKind,
     alloc_buffers: RangeAllocator<u32>,
     alloc_surfaces: RangeAllocator<u32>,
+    bios: Option<Bios>,
     ddis: Vec<Ddi>,
     dpclka_cfgcr0: Option<MmioPtr<u32>>,
     dplls: Vec<Dpll>,
@@ -170,7 +173,7 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn new(func: &PciFunction) -> Result<Self> {
+    pub fn new(pcid_handle: &mut PciFunctionHandle, func: &PciFunction) -> Result<Self> {
         let kind = match (func.full_device_id.vendor_id, func.full_device_id.device_id) {
             // Kaby Lake
             (0x8086, 0x5912) |
@@ -248,6 +251,27 @@ impl Device {
         let iobar = func.bars[4].expect_port();
         log::debug!("IOBAR {:X?}", iobar);
         */
+
+        // IGD OpRegion/Software SCI/_DSM for Skylake Processors
+        let bios_base = unsafe { pcid_handle.read_config(0xFC) };
+        let bios = if bios_base != 0 {
+            log::info!("BIOS {:X?}", bios_base);
+            // This is the default BIOS size
+            let bios_size = 8 * 1024;
+            match Bios::new(MmioRegion::new(
+                bios_base as usize,
+                bios_size,
+                common::MemoryType::Uncacheable,
+            )?) {
+                Ok(bios) => Some(bios),
+                Err(err) => {
+                    log::warn!("failed to parse BIOS at {:08X}: {}", bios_base, err);
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
         // GMBUS seems to be stable for all generations
         let gmbus = unsafe { Gmbus::new(&gttmm)? };
@@ -363,6 +387,7 @@ impl Device {
             kind,
             alloc_buffers: RangeAllocator::new(0..1024), //TODO: get number of available buffers
             alloc_surfaces: RangeAllocator::new(0..gm.size as u32),
+            bios,
             ddis,
             dpclka_cfgcr0,
             dplls,

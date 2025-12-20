@@ -67,6 +67,8 @@ impl GraphicsAdapter for FbAdapter {
         }
     }
 
+    fn probe_connector(&mut self, _connector: &mut DrmConnector<Self>) {}
+
     fn display_count(&self) -> usize {
         self.framebuffers.len()
     }

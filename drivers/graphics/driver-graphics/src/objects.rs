@@ -47,11 +47,29 @@ impl<T: GraphicsAdapter> DrmObjects<T> {
         connector_id
     }
 
-    pub fn connectors(&self) -> impl Iterator<Item = DrmObjectId> + use<'_, T> {
+    pub fn connector_ids(&self) -> impl Iterator<Item = DrmObjectId> + use<'_, T> {
         self.objects
             .iter()
             .filter_map(|(&id, object)| match object.kind {
                 DrmObjectKind::Connector(_) => Some(id),
+                _ => None,
+            })
+    }
+
+    pub fn connectors(&self) -> impl Iterator<Item = &DrmConnector<T>> + use<'_, T> {
+        self.objects
+            .values()
+            .filter_map(|object| match &object.kind {
+                DrmObjectKind::Connector(connector) => Some(connector),
+                _ => None,
+            })
+    }
+
+    pub fn connectors_mut(&mut self) -> impl Iterator<Item = &mut DrmConnector<T>> + use<'_, T> {
+        self.objects
+            .values_mut()
+            .filter_map(|object| match &mut object.kind {
+                DrmObjectKind::Connector(connector) => Some(connector),
                 _ => None,
             })
     }
@@ -72,7 +90,7 @@ impl<T: GraphicsAdapter> DrmObjects<T> {
         }
     }
 
-    pub fn encoders(&self) -> impl Iterator<Item = DrmObjectId> + use<'_, T> {
+    pub fn encoder_ids(&self) -> impl Iterator<Item = DrmObjectId> + use<'_, T> {
         self.objects
             .iter()
             .filter_map(|(&id, object)| match object.kind {

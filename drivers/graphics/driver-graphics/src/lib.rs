@@ -18,7 +18,7 @@ use redox_scheme::{CallerCtx, OpenResult, RequestKind, SignalBehavior, Socket};
 use syscall::schemev2::NewFdFlags;
 use syscall::{Error, MapFlags, Result, EAGAIN, EBADF, EINVAL, ENOENT, EOPNOTSUPP};
 
-use crate::objects::{DrmObjectId, DrmObjects};
+use crate::objects::{DrmConnector, DrmObjectId, DrmObjects};
 
 pub mod objects;
 
@@ -35,6 +35,8 @@ pub trait GraphicsAdapter: Sized {
 
     fn get_cap(&self, cap: u32) -> Result<u64>;
     fn set_client_cap(&self, cap: u32, value: u64) -> Result<()>;
+
+    fn probe_connector(&mut self, connector: &mut DrmConnector<Self>);
 
     /// The maximum amount of displays that could be attached.
     ///
@@ -111,6 +113,9 @@ impl<T: GraphicsAdapter> GraphicsScheme<T> {
 
         let mut objects = DrmObjects::new();
         adapter.init(&mut objects);
+        for connector in objects.connectors_mut() {
+            adapter.probe_connector(connector);
+        }
 
         GraphicsScheme {
             adapter,
@@ -523,9 +528,17 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsScheme<T> {
                 }),
                 ipc::MODE_CARD_RES => ipc::DrmModeCardRes::with(payload, |mut data| {
                     let count = self.adapter.display_count();
-                    let conn_ids = self.objects.connectors().map(|id| id.0).collect::<Vec<_>>();
+                    let conn_ids = self
+                        .objects
+                        .connector_ids()
+                        .map(|id| id.0)
+                        .collect::<Vec<_>>();
                     let mut crtc_ids = Vec::with_capacity(count);
-                    let enc_ids = self.objects.encoders().map(|id| id.0).collect::<Vec<_>>();
+                    let enc_ids = self
+                        .objects
+                        .encoder_ids()
+                        .map(|id| id.0)
+                        .collect::<Vec<_>>();
                     let mut fb_ids = Vec::with_capacity(count);
                     for i in 0..(count as u32) {
                         crtc_ids.push(crtc_id(i));
@@ -563,7 +576,10 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsScheme<T> {
                 ipc::MODE_GET_CONNECTOR => ipc::DrmModeGetConnector::with(payload, |mut data| {
                     let connector = self
                         .objects
-                        .get_connector(DrmObjectId(data.connector_id()))?;
+                        .get_connector_mut(DrmObjectId(data.connector_id()))?;
+                    if data.count_modes() == 0 {
+                        self.adapter.probe_connector(connector);
+                    }
                     data.set_connection(connector.connection as u32);
                     data.set_modes_ptr(&connector.modes);
                     data.set_mm_width(connector.mm_width);

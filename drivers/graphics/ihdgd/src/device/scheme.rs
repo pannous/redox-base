@@ -16,13 +16,17 @@ use syscall::{error::EINVAL, PAGE_SIZE};
 
 use super::Device;
 
+pub struct Connector {
+    framebuffer_id: usize,
+}
+
 //TODO: use hardware cursor
 pub enum Cursor {}
 
 impl CursorFramebuffer for Cursor {}
 
 impl GraphicsAdapter for Device {
-    type Connector = ();
+    type Connector = Connector;
 
     type Framebuffer = DumbFb;
     type Cursor = Cursor;
@@ -37,12 +41,9 @@ impl GraphicsAdapter for Device {
 
     fn init(&mut self, objects: &mut DrmObjects<Self>) {
         // FIXME enumerate actual connectors
-        for framebuffer in &self.framebuffers {
+        for (framebuffer_id, _) in self.framebuffers.iter().enumerate() {
             objects.add_connector(DrmConnector {
-                modes: vec![modeinfo_for_size(
-                    framebuffer.width as u32,
-                    framebuffer.height as u32,
-                )],
+                modes: vec![],
                 encoder_id: DrmObjectId::INVALID,
                 connector_type: 0,
                 connector_type_id: 0,
@@ -50,7 +51,7 @@ impl GraphicsAdapter for Device {
                 mm_width: 0,
                 mm_height: 0,
                 subpixel: DrmSubpixelOrder::Unknown,
-                driver_data: (),
+                driver_data: Connector { framebuffer_id },
             });
         }
     }
@@ -68,6 +69,14 @@ impl GraphicsAdapter for Device {
             DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT => Ok(()),
             _ => Err(syscall::Error::new(EINVAL)),
         }
+    }
+
+    fn probe_connector(&mut self, connector: &mut DrmConnector<Self>) {
+        let framebuffer = &self.framebuffers[connector.driver_data.framebuffer_id];
+        connector.modes = vec![modeinfo_for_size(
+            framebuffer.width as u32,
+            framebuffer.height as u32,
+        )];
     }
 
     fn display_count(&self) -> usize {

@@ -76,6 +76,7 @@ impl CursorFramebuffer for VirtGpuCursor {}
 
 #[derive(Debug, Copy, Clone)]
 pub struct Display {
+    enabled: bool,
     width: u32,
     height: u32,
     active_resource: Option<ResourceId>,
@@ -90,13 +91,14 @@ pub struct VirtGpuAdapter<'a> {
 }
 
 impl VirtGpuAdapter<'_> {
-    pub async fn update_displays(&mut self, objects: &mut DrmObjects<Self>) -> Result<(), Error> {
+    pub async fn update_displays(&mut self) -> Result<(), Error> {
         let display_info = self.get_display_info().await?;
         let raw_displays = &display_info.display_info[..self.config.num_scanouts() as usize];
 
         self.displays.resize(
             raw_displays.len(),
             Display {
+                enabled: false,
                 width: 0,
                 height: 0,
                 active_resource: None,
@@ -109,6 +111,8 @@ impl VirtGpuAdapter<'_> {
                 info.rect.height
             );
 
+            self.displays[i].enabled = info.enabled != 0;
+
             if info.rect.width == 0 || info.rect.height == 0 {
                 // QEMU gives all displays other than the first a zero width and height, but trying
                 // to attach a zero sized framebuffer to the display will result an error, so
@@ -119,19 +123,6 @@ impl VirtGpuAdapter<'_> {
                 self.displays[i].width = info.rect.width;
                 self.displays[i].height = info.rect.height;
             }
-        }
-
-        for connector in objects.connectors().collect::<Vec<_>>() {
-            let connector = objects.get_connector_mut(connector).unwrap();
-            let display = &self.displays[connector.driver_data.display_id as usize];
-
-            connector.modes = vec![modeinfo_for_size(display.width, display.height)];
-            connector.connection =
-                if raw_displays[connector.driver_data.display_id as usize].enabled != 0 {
-                    DrmConnectorStatus::Connected
-                } else {
-                    DrmConnectorStatus::Disconnected
-                };
         }
 
         Ok(())
@@ -233,6 +224,10 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
     }
 
     fn init(&mut self, objects: &mut DrmObjects<Self>) {
+        futures::executor::block_on(async {
+            self.update_displays().await.unwrap();
+        });
+
         for display_id in 0..self.config.num_scanouts.get() {
             objects.add_connector(DrmConnector {
                 modes: vec![],
@@ -246,10 +241,6 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
                 driver_data: VirtGpuConnector { display_id },
             });
         }
-
-        futures::executor::block_on(async {
-            self.update_displays(objects).await.unwrap();
-        });
     }
 
     fn get_cap(&self, cap: u32) -> syscall::Result<u64> {
@@ -265,6 +256,19 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
             DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT => Ok(()),
             _ => Err(syscall::Error::new(EINVAL)),
         }
+    }
+
+    fn probe_connector(&mut self, connector: &mut DrmConnector<Self>) {
+        futures::executor::block_on(async {
+            let display = &self.displays[connector.driver_data.display_id as usize];
+
+            connector.modes = vec![modeinfo_for_size(display.width, display.height)];
+            connector.connection = if display.enabled {
+                DrmConnectorStatus::Connected
+            } else {
+                DrmConnectorStatus::Disconnected
+            };
+        });
     }
 
     fn display_count(&self) -> usize {

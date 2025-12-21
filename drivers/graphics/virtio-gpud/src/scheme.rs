@@ -2,7 +2,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use common::{dma::Dma, sgl};
-use driver_graphics::objects::{DrmConnector, DrmConnectorStatus, DrmObjects};
+use driver_graphics::objects::{DrmConnectorStatus, DrmObjectId, DrmObjects};
 use driver_graphics::{
     modeinfo_for_size, CursorFramebuffer, CursorPlane, Framebuffer, GraphicsAdapter,
     GraphicsScheme, StandardProperties,
@@ -76,11 +76,12 @@ pub struct VirtGpuCursor {
 
 impl CursorFramebuffer for VirtGpuCursor {}
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct Display {
     enabled: bool,
     width: u32,
     height: u32,
+    edid: Vec<u8>,
     active_resource: Option<ResourceId>,
 }
 
@@ -89,6 +90,7 @@ pub struct VirtGpuAdapter<'a> {
     control_queue: Arc<Queue<'a>>,
     cursor_queue: Arc<Queue<'a>>,
     transport: Arc<dyn Transport>,
+    has_edid: bool,
     displays: Vec<Display>,
 }
 
@@ -111,6 +113,7 @@ impl VirtGpuAdapter<'_> {
                 enabled: false,
                 width: 0,
                 height: 0,
+                edid: vec![],
                 active_resource: None,
             },
         );
@@ -132,6 +135,11 @@ impl VirtGpuAdapter<'_> {
             } else {
                 self.displays[i].width = info.rect.width;
                 self.displays[i].height = info.rect.height;
+            }
+
+            if self.has_edid {
+                let edid = self.get_edid(i as u32).await?;
+                self.displays[i].edid = edid.edid[..edid.size as usize].to_vec();
             }
         }
 
@@ -172,6 +180,21 @@ impl VirtGpuAdapter<'_> {
 
         self.control_queue.send(command).await;
         assert!(response.header.ty == CommandTy::RespOkDisplayInfo);
+
+        Ok(response)
+    }
+
+    async fn get_edid(&self, scanout_id: u32) -> Result<Dma<GetEdidResp>, Error> {
+        let header = Dma::new(GetEdid::new(scanout_id))?;
+
+        let response = Dma::new(GetEdidResp::new())?;
+        let command = ChainBuilder::new()
+            .chain(Buffer::new(&header))
+            .chain(Buffer::new(&response).flags(DescriptorFlags::WRITE_ONLY))
+            .build();
+
+        self.control_queue.send(command).await;
+        assert!(response.header.ty == CommandTy::RespOkEdid);
 
         Ok(response)
     }
@@ -240,6 +263,9 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
 
         for display_id in 0..self.config.num_scanouts.get() {
             let connector = objects.add_connector(VirtGpuConnector { display_id });
+            if self.has_edid {
+                objects.add_object_property(connector, standard_properties.edid, 0);
+            }
             objects.add_object_property(
                 connector,
                 standard_properties.dpms,
@@ -263,8 +289,14 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
         }
     }
 
-    fn probe_connector(&mut self, connector: &mut DrmConnector<Self>) {
+    fn probe_connector(
+        &mut self,
+        objects: &mut DrmObjects<Self>,
+        standard_properties: &StandardProperties,
+        id: DrmObjectId,
+    ) {
         futures::executor::block_on(async {
+            let connector = objects.get_connector_mut(id).unwrap();
             let display = &self.displays[connector.driver_data.display_id as usize];
 
             connector.modes = vec![modeinfo_for_size(display.width, display.height)];
@@ -273,6 +305,11 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
             } else {
                 DrmConnectorStatus::Disconnected
             };
+
+            if self.has_edid {
+                let blob = objects.add_blob(display.edid.clone());
+                objects.set_object_property(id, standard_properties.edid, blob.into());
+            }
         });
     }
 
@@ -482,12 +519,14 @@ impl<'a> GpuScheme {
         control_queue: Arc<Queue<'a>>,
         cursor_queue: Arc<Queue<'a>>,
         transport: Arc<dyn Transport>,
+        has_edid: bool,
     ) -> Result<(GraphicsScheme<VirtGpuAdapter<'a>>, DisplayHandle), Error> {
         let adapter = VirtGpuAdapter {
             config,
             control_queue,
             cursor_queue,
             transport,
+            has_edid,
             displays: vec![],
         };
 

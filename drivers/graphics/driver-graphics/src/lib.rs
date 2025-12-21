@@ -24,12 +24,13 @@ use redox_scheme::{CallerCtx, OpenResult, RequestKind, SignalBehavior, Socket};
 use syscall::schemev2::NewFdFlags;
 use syscall::{Error, MapFlags, Result, EAGAIN, EBADF, EINVAL, ENOENT, EOPNOTSUPP};
 
-use crate::objects::{DrmConnector, DrmObjectId, DrmObjects, DrmPropertyKind};
+use crate::objects::{DrmObjectId, DrmObjects, DrmPropertyKind};
 
 pub mod objects;
 
 #[derive(Debug, Copy, Clone)]
 pub struct StandardProperties {
+    pub edid: DrmObjectId,
     pub dpms: DrmObjectId,
 }
 
@@ -47,7 +48,12 @@ pub trait GraphicsAdapter: Sized + Debug {
     fn get_cap(&self, cap: u32) -> Result<u64>;
     fn set_client_cap(&self, cap: u32, value: u64) -> Result<()>;
 
-    fn probe_connector(&mut self, connector: &mut DrmConnector<Self>);
+    fn probe_connector(
+        &mut self,
+        objects: &mut DrmObjects<Self>,
+        standard_properties: &StandardProperties,
+        id: DrmObjectId,
+    );
 
     /// The maximum amount of displays that could be attached.
     ///
@@ -125,6 +131,7 @@ impl<T: GraphicsAdapter> GraphicsScheme<T> {
 
         let mut objects = DrmObjects::new();
 
+        let edid = objects.add_property("EDID", true, false, DrmPropertyKind::Blob);
         let dpms = objects.add_property(
             "DPMS",
             false,
@@ -136,10 +143,12 @@ impl<T: GraphicsAdapter> GraphicsScheme<T> {
                 ("Off", DRM_MODE_DPMS_OFF.into()),
             ]),
         );
-        let standard_properties = StandardProperties { dpms };
+        let standard_properties = StandardProperties { edid, dpms };
 
         adapter.init(&mut objects, &standard_properties);
-        objects.for_each_connector_mut(|connector| adapter.probe_connector(connector));
+        for connector_id in objects.connector_ids().to_vec() {
+            adapter.probe_connector(&mut objects, &standard_properties, connector_id)
+        }
 
         GraphicsScheme {
             adapter,
@@ -177,6 +186,10 @@ impl<T: GraphicsAdapter> GraphicsScheme<T> {
 
     pub fn adapter_and_objects_mut(&mut self) -> (&mut T, &mut DrmObjects<T>) {
         (&mut self.adapter, &mut self.objects)
+    }
+
+    pub fn standard_properties(&self) -> StandardProperties {
+        self.standard_properties
     }
 
     pub fn handle_vt_event(&mut self, vt_event: VtEvent) {
@@ -601,12 +614,16 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsScheme<T> {
                     Ok(0)
                 }),
                 ipc::MODE_GET_CONNECTOR => ipc::DrmModeGetConnector::with(payload, |mut data| {
+                    if data.count_modes() == 0 {
+                        self.adapter.probe_connector(
+                            &mut self.objects,
+                            &self.standard_properties,
+                            DrmObjectId(data.connector_id()),
+                        );
+                    }
                     let connector = self
                         .objects
                         .get_connector_mut(DrmObjectId(data.connector_id()))?;
-                    if data.count_modes() == 0 {
-                        self.adapter.probe_connector(connector);
-                    }
                     data.set_connection(connector.connection as u32);
                     data.set_modes_ptr(&connector.modes);
                     data.set_mm_width(connector.mm_width);
@@ -703,6 +720,11 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsScheme<T> {
                             data.set_enum_blob_ptr(&[]);
                         }
                     }
+                    Ok(0)
+                }),
+                ipc::MODE_GET_PROP_BLOB => ipc::DrmModeGetBlob::with(payload, |mut data| {
+                    let blob = self.objects.get_blob(DrmObjectId(data.blob_id()))?;
+                    data.set_data(&blob);
                     Ok(0)
                 }),
                 ipc::MODE_GET_FB => ipc::DrmModeFbCmd::with(payload, |mut data| {

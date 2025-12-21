@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ffi::c_char;
 
 use drm_sys::{
-    drm_mode_modeinfo, DRM_MODE_OBJECT_CONNECTOR, DRM_MODE_OBJECT_ENCODER,
+    drm_mode_modeinfo, DRM_MODE_OBJECT_BLOB, DRM_MODE_OBJECT_CONNECTOR, DRM_MODE_OBJECT_ENCODER,
     DRM_MODE_OBJECT_PROPERTY, DRM_PROP_NAME_LEN,
 };
 use syscall::{Error, Result, EINVAL};
@@ -31,6 +31,7 @@ impl<T: GraphicsAdapter> DrmObjects<T> {
         let object = self.objects.get(&id).ok_or(Error::new(EINVAL))?;
         Ok(match object.kind {
             DrmObjectKind::Property(_) => DRM_MODE_OBJECT_PROPERTY,
+            DrmObjectKind::Blob(_) => DRM_MODE_OBJECT_BLOB,
             DrmObjectKind::Connector(_) => DRM_MODE_OBJECT_CONNECTOR,
             DrmObjectKind::Encoder(_) => DRM_MODE_OBJECT_ENCODER,
         })
@@ -103,13 +104,45 @@ impl<T: GraphicsAdapter> DrmObjects<T> {
 
     pub fn add_object_property(&mut self, object: DrmObjectId, property: DrmObjectId, value: u64) {
         let object = self.objects.get_mut(&object).unwrap();
-        // FIXME validate property
+        // FIXME validate property uniqueness and value
         object.properties.push((property, value));
+    }
+
+    pub fn set_object_property(&mut self, object: DrmObjectId, property: DrmObjectId, value: u64) {
+        let object = self.objects.get_mut(&object).unwrap();
+        // FIXME validate property existence and value
+        for (prop, val) in object.properties.iter_mut() {
+            if *prop == property {
+                *val = value;
+            }
+        }
     }
 
     pub fn get_object_properties(&self, id: DrmObjectId) -> Result<&[(DrmObjectId, u64)]> {
         let object = self.objects.get(&id).ok_or(Error::new(EINVAL))?;
         Ok(&object.properties)
+    }
+
+    pub fn add_blob(&mut self, data: Vec<u8>) -> DrmObjectId {
+        let id = self.next_id;
+        self.objects.insert(
+            id,
+            DrmObject {
+                kind: DrmObjectKind::Blob(data),
+                properties: vec![],
+            },
+        );
+        self.next_id.0 += 1;
+
+        id
+    }
+
+    pub fn get_blob(&self, id: DrmObjectId) -> Result<&[u8]> {
+        let object = self.objects.get(&id).ok_or(Error::new(EINVAL))?;
+        match &object.kind {
+            DrmObjectKind::Blob(data) => Ok(data),
+            _ => Err(Error::new(EINVAL)),
+        }
     }
 
     pub fn add_connector(&mut self, driver_data: T::Connector) -> DrmObjectId {
@@ -164,15 +197,6 @@ impl<T: GraphicsAdapter> DrmObjects<T> {
             })
     }
 
-    pub fn for_each_connector_mut<'a>(&mut self, mut f: impl FnMut(&mut DrmConnector<T>)) {
-        for id in &self.connectors {
-            match &mut self.objects.get_mut(&id).unwrap().kind {
-                DrmObjectKind::Connector(connector) => f(connector),
-                _ => unreachable!(),
-            }
-        }
-    }
-
     pub fn get_connector(&self, id: DrmObjectId) -> Result<&DrmConnector<T>> {
         let object = self.objects.get(&id).ok_or(Error::new(EINVAL))?;
         match &object.kind {
@@ -217,6 +241,12 @@ impl DrmObjectId {
     pub const INVALID: DrmObjectId = DrmObjectId(0);
 }
 
+impl From<DrmObjectId> for u64 {
+    fn from(value: DrmObjectId) -> Self {
+        value.0.into()
+    }
+}
+
 #[derive(Debug)]
 struct DrmObject<T: GraphicsAdapter> {
     kind: DrmObjectKind<T>,
@@ -226,6 +256,7 @@ struct DrmObject<T: GraphicsAdapter> {
 #[derive(Debug)]
 enum DrmObjectKind<T: GraphicsAdapter> {
     Property(DrmProperty),
+    Blob(Vec<u8>),
     Connector(DrmConnector<T>),
     Encoder(DrmEncoder),
 }

@@ -2,7 +2,7 @@ use std::alloc::{self, Layout};
 use std::convert::TryInto;
 use std::ptr::{self, NonNull};
 
-use driver_graphics::objects::{DrmConnector, DrmConnectorStatus, DrmObjects};
+use driver_graphics::objects::{DrmConnectorStatus, DrmObjectId, DrmObjects};
 use driver_graphics::{
     modeinfo_for_size, CursorFramebuffer, CursorPlane, Framebuffer, GraphicsAdapter,
     StandardProperties,
@@ -69,7 +69,13 @@ impl GraphicsAdapter for FbAdapter {
         }
     }
 
-    fn probe_connector(&mut self, connector: &mut DrmConnector<Self>) {
+    fn probe_connector(
+        &mut self,
+        objects: &mut DrmObjects<Self>,
+        _standard_properties: &StandardProperties,
+        id: DrmObjectId,
+    ) {
+        let connector = objects.get_connector_mut(id).unwrap();
         connector.modes = vec![modeinfo_for_size(
             connector.driver_data.width,
             connector.driver_data.height,

@@ -269,14 +269,20 @@ impl Device {
             log::info!("BIOS {:X?}", bios_base);
             // This is the default BIOS size
             let bios_size = 8 * 1024;
-            match Bios::new(MmioRegion::new(
+            match MmioRegion::new(
                 bios_base as usize,
                 bios_size,
                 common::MemoryType::Uncacheable,
-            )?) {
-                Ok(bios) => Some(bios),
+            ) {
+                Ok(region) => match Bios::new(region) {
+                    Ok(bios) => Some(bios),
+                    Err(err) => {
+                        log::warn!("failed to parse BIOS at {:08X}: {}", bios_base, err);
+                        None
+                    }
+                },
                 Err(err) => {
-                    log::warn!("failed to parse BIOS at {:08X}: {}", bios_base, err);
+                    log::warn!("failed to map BIOS at {:08X}: {}", bios_base, err);
                     None
                 }
             }

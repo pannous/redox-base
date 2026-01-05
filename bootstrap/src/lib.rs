@@ -23,6 +23,20 @@ pub mod initfs;
 pub mod procmgr;
 pub mod start;
 
+/// Compatibility module for syscall functions removed in redox_syscall 0.7.0
+pub mod compat {
+    use syscall::error::Result;
+
+    /// SYS_OPEN was removed in 0.7.0 but kernel still supports it
+    const SYS_OPEN: usize = 0x1000_0000 | 0x0010_0000 | 5;
+
+    /// Open a file at an absolute path (legacy syscall)
+    pub fn open<T: AsRef<str>>(path: T, flags: usize) -> Result<usize> {
+        let path = path.as_ref();
+        unsafe { syscall::syscall3(SYS_OPEN, path.as_ptr() as usize, path.len(), flags) }
+    }
+}
+
 extern crate alloc;
 
 use core::cell::UnsafeCell;

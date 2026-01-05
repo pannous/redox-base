@@ -46,9 +46,9 @@ pub unsafe extern "C" fn start() -> ! {
     let (rodata_start, rodata_end) = offsets::rodata();
     let (data_start, data_end) = offsets::data_and_bss();
 
-    let _ = syscall::open("/scheme/debug", syscall::O_RDONLY); // stdin
-    let _ = syscall::open("/scheme/debug", syscall::O_WRONLY); // stdout
-    let _ = syscall::open("/scheme/debug", syscall::O_WRONLY); // stderr
+    let _ = crate::compat::open("/scheme/debug", syscall::O_RDONLY); // stdin
+    let _ = crate::compat::open("/scheme/debug", syscall::O_WRONLY); // stdout
+    let _ = crate::compat::open("/scheme/debug", syscall::O_WRONLY); // stderr
 
     let _ = syscall::mprotect(4096, 4096, MapFlags::PROT_READ | MapFlags::MAP_PRIVATE)
         .expect("mprotect failed for initfs header page");

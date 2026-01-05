@@ -33,3 +33,6 @@ lto = "fat"
 
 [profile.dev]
 panic = "abort"
+
+[patch.crates-io]
+redox-scheme = { path = "../redox-scheme" }

@@ -129,7 +129,7 @@ pub(crate) fn spawn(
     this_thr_fd: &FdGuardUpper,
     inner: impl FnOnce(usize),
 ) {
-    let read = syscall::open("/scheme/pipe", O_CLOEXEC).expect("failed to open sync read pipe");
+    let read = crate::compat::open("/scheme/pipe", O_CLOEXEC).expect("failed to open sync read pipe");
 
     // The write pipe will not inherit O_CLOEXEC, but is closed by the daemon later.
     let write = syscall::dup(read, b"write").expect("failed to open sync write pipe");

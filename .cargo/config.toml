@@ -9,5 +9,4 @@ redox-ioctl = { path = "/opt/other/redox/recipes/core/relibc/source/redox-ioctl"
 relibc = { path = "/opt/other/redox/recipes/core/relibc/source" }
 redox-rt = { path = "/opt/other/redox/recipes/core/relibc/source/redox-rt" }
 
-# Use local patched redox-scheme with redox_syscall 0.7
-redox-scheme = { path = "/tmp/redox-scheme" }
+# redox-scheme 0.8.3 from crates.io uses syscall 0.7

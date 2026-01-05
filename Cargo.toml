@@ -82,6 +82,9 @@ rustix = { git = "https://github.com/jackpot51/rustix.git", branch = "redox-ioct
 drm = { git = "https://github.com/Smithay/drm-rs.git" }
 drm-sys = { git = "https://github.com/Smithay/drm-rs.git" }
 
+# Updated for redox_syscall 0.7.0 compatibility
+redox-scheme = { path = "redox-scheme" }
+
 [patch."https://gitlab.redox-os.org/redox-os/relibc.git"]
 #redox-rt = { path = "../../relibc/source/redox-rt" }
 #redox-ioctl = { path = "../../relibc/source/redox-ioctl" }

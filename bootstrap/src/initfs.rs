@@ -390,7 +390,7 @@ pub unsafe extern "C" fn redox_write_v1(fd: usize, ptr: *const u8, len: usize) -
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn redox_open_v1(ptr: *const u8, len: usize, flags: usize) -> isize {
-    Error::mux(syscall::open(core::str::from_raw_parts(ptr, len), flags)) as isize
+    Error::mux(crate::compat::open(core::str::from_raw_parts(ptr, len), flags)) as isize
 }
 
 #[unsafe(no_mangle)]

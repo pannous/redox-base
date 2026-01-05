@@ -1,10 +1,26 @@
 use std::fs;
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 
 use pcid_interface::config::Config;
 use pcid_interface::PciFunctionHandle;
+
+fn wait_for_scheme(path: &str, max_retries: u32, delay_ms: u64) -> Result<fs::ReadDir> {
+    for i in 0..max_retries {
+        match fs::read_dir(path) {
+            Ok(dir) => return Ok(dir),
+            Err(e) if i < max_retries - 1 => {
+                log::debug!("pcid-spawner: waiting for {} (attempt {}/{}): {}", path, i + 1, max_retries, e);
+                thread::sleep(Duration::from_millis(delay_ms));
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+    unreachable!()
+}
 
 fn main() -> Result<()> {
     let mut args = pico_args::Arguments::from_env();
@@ -33,7 +49,8 @@ fn main() -> Result<()> {
     };
     let config: Config = toml::from_str(&config_data)?;
 
-    for entry in fs::read_dir("/scheme/pci")? {
+    // Wait for pcid to register the pci scheme (workaround for race condition)
+    for entry in wait_for_scheme("/scheme/pci", 50, 100)? {
         let entry = entry.context("failed to get entry")?;
         let device_path = entry.path();
         log::trace!("ENTRY: {}", device_path.to_string_lossy());

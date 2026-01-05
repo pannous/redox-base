@@ -10,3 +10,12 @@ relibc = { path = "/opt/other/redox/recipes/core/relibc/source" }
 redox-rt = { path = "/opt/other/redox/recipes/core/relibc/source/redox-rt" }
 
 # redox-scheme 0.8.3 from crates.io uses syscall 0.7
+
+# Cranelift build configuration for aarch64
+[target.aarch64-unknown-redox-clif]
+rustflags = [
+    "-Clink-arg=-L/opt/other/redox/recipes/core/relibc/source/target/aarch64-unknown-redox-clif/release",
+    "-Clink-arg=-z",
+    "-Clink-arg=muldefs",
+    "-Cpanic=abort",
+]

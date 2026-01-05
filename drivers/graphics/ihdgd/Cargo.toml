@@ -26,4 +26,4 @@ pcid = { path = "../../pcid" }
 libredox = "0.1.3"
 redox-scheme = "0.8"
 redox_event = "0.4.1"
-redox_syscall = "0.6"
+redox_syscall = "0.7"

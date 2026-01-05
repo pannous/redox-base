@@ -85,11 +85,12 @@ fn handle(
 }
 
 fn getpty(columns: u32, lines: u32) -> io::Result<(RawFd, String)> {
-    let master = syscall::open(
+    let master = libredox::call::open(
         "/scheme/pty",
-        syscall::O_CLOEXEC | syscall::O_RDWR | syscall::O_CREAT | syscall::O_NONBLOCK,
+        libredox::flag::O_CLOEXEC | libredox::flag::O_RDWR | libredox::flag::O_CREAT | libredox::flag::O_NONBLOCK,
+        0,
     )
-    .map_err(syscall_error)?;
+    .map_err(|e| io::Error::from_raw_os_error(e.errno()))?;
 
     if let Ok(winsize_fd) = syscall::dup(master, b"winsize") {
         let _ = syscall::write(
@@ -118,11 +119,12 @@ fn inner() -> anyhow::Result<()> {
     let (columns, lines) = (DEFAULT_COLS, DEFAULT_LINES);
     let (master_fd, pty) = getpty(columns, lines)?;
 
-    let timeout_fd = syscall::open(
+    let timeout_fd = libredox::call::open(
         "/scheme/time/4",
-        syscall::O_CLOEXEC | syscall::O_RDWR | syscall::O_NONBLOCK,
+        libredox::flag::O_CLOEXEC | libredox::flag::O_RDWR | libredox::flag::O_NONBLOCK,
+        0,
     )
-    .map_err(syscall_error)? as RawFd;
+    .map_err(|e| io::Error::from_raw_os_error(e.errno()))? as RawFd;
 
     let event_queue = event::EventQueue::new()?;
     event_queue.subscribe(master_fd as usize, EventData::Pty, event::EventFlags::READ)?;

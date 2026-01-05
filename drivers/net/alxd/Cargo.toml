@@ -6,7 +6,7 @@ edition = "2018"
 [dependencies]
 bitflags = "2"
 redox_event = "0.4.1"
-redox_syscall = "0.6"
+redox_syscall = "0.7"
 
 common = { path = "../../common" }
 daemon = { path = "../../../daemon" }

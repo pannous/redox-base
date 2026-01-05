@@ -7,7 +7,7 @@ edition = "2021"
 orbclient = "0.3.47"
 log = "0.4"
 redox-scheme = "0.8.3"
-redox_syscall = "0.6"
+redox_syscall = "0.7"
 
 common = { path = "../../common" }
 daemon = { path = "../../../daemon" }

@@ -14,7 +14,7 @@ dependencies = [
  "pcid",
  "redox-scheme",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "spin 0.9.8",
 ]
 
@@ -48,7 +48,7 @@ dependencies = [
  "plain",
  "redox-scheme",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "ron",
  "rustc-hash",
  "serde",
@@ -68,7 +68,7 @@ dependencies = [
  "log",
  "pcid",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -90,7 +90,7 @@ dependencies = [
  "libredox",
  "redox-scheme",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -214,7 +214,7 @@ dependencies = [
  "libc",
  "libredox",
  "redox-scheme",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -245,7 +245,7 @@ dependencies = [
  "fdt 0.2.0-alpha1",
  "libredox",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -260,7 +260,7 @@ dependencies = [
  "orbclient",
  "pcid",
  "redox-scheme",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -326,9 +326,9 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.19.0"
+version = "3.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46c5e41b57b8bba42a04676d81cb89e9ee8e859a1a66f80a5a72e1cb76b34d43"
+checksum = "5dd9dc738b7a8311c7ade152424974d8115f2cdad61e8dab8dac9f2362298510"
 
 [[package]]
 name = "byte-tools"
@@ -353,7 +353,7 @@ checksum = "f9abbd1bc6865053c427f7198e6af43bfdedc55ab791faed4fbd361d789575ff"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.111",
+ "syn 2.0.113",
 ]
 
 [[package]]
@@ -364,9 +364,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "cc"
-version = "1.2.49"
+version = "1.2.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90583009037521a116abf44494efecd645ba48b6622457080f080b85544e2215"
+checksum = "7a0aeaff4ff1a90589618835a598e545176939b97874f7abc7851caa0618f203"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -424,18 +424,18 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.53"
+version = "4.5.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9e340e012a1bf4935f5282ed1436d1489548e8f72308207ea5df0e23d2d03f8"
+checksum = "c6e6ff9dcd79cff5cd969a17a545d79e84ab086e444102a591e288a8aa3ce394"
 dependencies = [
  "clap_builder",
 ]
 
 [[package]]
 name = "clap_builder"
-version = "4.5.53"
+version = "4.5.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d76b5d13eaa18c901fd2f7fca939fefe3a0727a953561fefdf3b2922b8569d00"
+checksum = "fa42cf4d2b7a41bc8f663a7cab4031ebafa1bf3875705bfaf8466dc60ab52c00"
 dependencies = [
  "anstream",
  "anstyle",
@@ -462,7 +462,7 @@ dependencies = [
  "libredox",
  "log",
  "redox-log",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -568,7 +568,7 @@ dependencies = [
  "proc-macro-error2",
  "proc-macro2",
  "quote",
- "syn 2.0.111",
+ "syn 2.0.113",
 ]
 
 [[package]]
@@ -600,7 +600,7 @@ dependencies = [
  "log",
  "partitionlib",
  "redox-scheme",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -614,7 +614,7 @@ dependencies = [
  "libredox",
  "log",
  "redox-scheme",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -624,7 +624,7 @@ dependencies = [
  "daemon",
  "libredox",
  "redox-scheme",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -677,7 +677,7 @@ dependencies = [
  "log",
  "pcid",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -757,7 +757,7 @@ dependencies = [
  "ransid",
  "redox-scheme",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -776,7 +776,7 @@ dependencies = [
  "ransid",
  "redox-scheme",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -792,9 +792,9 @@ source = "git+https://github.com/repnop/fdt.git#059bb2383873f8001959456e36ec1232
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a3076410a55c90011c298b04d0cfa770b00fa04e1e3c97d3f6c9de105a03844"
+checksum = "645cbb3a84e60b7531617d5ae4e57f7e27308f6445f5abf653209ea76dec8dff"
 
 [[package]]
 name = "fuchsia-cprng"
@@ -858,7 +858,7 @@ checksum = "162ee34ebcb7c64a8abebc059ce0fee27c2262618d7b60ed8faf72fef13c3650"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.111",
+ "syn 2.0.113",
 ]
 
 [[package]]
@@ -903,7 +903,6 @@ dependencies = [
 [[package]]
 name = "generic-rt"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#99e8cd93e0d125010130d8e3aee7d343735d8b5c"
 
 [[package]]
 name = "getrandom"
@@ -960,7 +959,7 @@ dependencies = [
  "libredox",
  "log",
  "redox-ioctl",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -1058,7 +1057,7 @@ dependencies = [
  "log",
  "pcid",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -1073,7 +1072,7 @@ dependencies = [
  "pcid",
  "redox-scheme",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "spin 0.9.8",
 ]
 
@@ -1097,7 +1096,7 @@ dependencies = [
  "range-alloc",
  "redox-scheme",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "void",
 ]
 
@@ -1129,7 +1128,7 @@ dependencies = [
  "log",
  "orbclient",
  "redox-scheme",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -1154,7 +1153,7 @@ dependencies = [
  "redox-rt",
  "redox-scheme",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -1165,9 +1164,9 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "itoa"
-version = "1.0.15"
+version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
+checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "ixgbed"
@@ -1180,7 +1179,7 @@ dependencies = [
  "libredox",
  "pcid",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -1206,14 +1205,14 @@ source = "git+https://gitlab.redox-os.org/redox-os/liblibc.git?branch=redox-0.2#
 
 [[package]]
 name = "libredox"
-version = "0.1.11"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df15f6eac291ed1cf25865b1ee60399f57e7c227e7f51bdbd4c5270396a9ed50"
+checksum = "3d0b95e02c851351f877147b7deea7b1afb1df71b63aa5f8270716e0c5720616"
 dependencies = [
  "bitflags 2.10.0",
  "ioslice",
  "libc",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -1237,7 +1236,7 @@ dependencies = [
  "driver-block",
  "libredox",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -1262,7 +1261,7 @@ dependencies = [
  "daemon",
  "libredox",
  "redox-scheme",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -1359,7 +1358,7 @@ dependencies = [
  "partitionlib",
  "pcid",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "smallvec 1.15.1",
 ]
 
@@ -1383,13 +1382,12 @@ checksum = "2839e79665f131bdb5782e51f2c6c9599c133c6098982a54c794358bf432529c"
 
 [[package]]
 name = "orbclient"
-version = "0.3.49"
-source = "git+https://gitlab.redox-os.org/redox-os/orbclient.git#aefc8e0ceb4101325faa2293705a1ebfc4e0e63f"
+version = "0.3.50"
+source = "git+https://gitlab.redox-os.org/redox-os/orbclient.git#e5a7639e6a364410df812867979eb66ce21fd758"
 dependencies = [
  "libc",
  "libredox",
  "sdl2",
- "sdl2-sys",
 ]
 
 [[package]]
@@ -1486,7 +1484,7 @@ dependencies = [
  "pico-args",
  "plain",
  "redox-scheme",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "serde",
 ]
 
@@ -1499,7 +1497,7 @@ dependencies = [
  "log",
  "pcid",
  "pico-args",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "serde",
  "toml 0.5.11",
 ]
@@ -1556,14 +1554,14 @@ dependencies = [
  "proc-macro-error-attr2",
  "proc-macro2",
  "quote",
- "syn 2.0.111",
+ "syn 2.0.113",
 ]
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.103"
+version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ee95bc4ef87b8d5ba32e8b7714ccc834865276eab0aed5c9958d00ec45f49e8"
+checksum = "9695f8df41bb4f3d222c95a67532365f569318332d03d5f3f67f37b20e6ebdf0"
 dependencies = [
  "unicode-ident",
 ]
@@ -1581,7 +1579,7 @@ dependencies = [
  "orbclient",
  "redox-scheme",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -1592,7 +1590,7 @@ dependencies = [
  "libredox",
  "redox-scheme",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "redox_termios",
 ]
 
@@ -1625,7 +1623,7 @@ dependencies = [
  "indexmap",
  "libredox",
  "redox-scheme",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "slab",
 ]
 
@@ -1713,7 +1711,7 @@ dependencies = [
  "rand_core 0.5.1",
  "raw-cpuid",
  "redox-scheme",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "sha2",
 ]
 
@@ -1767,7 +1765,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "archive-common",
- "clap 4.5.53",
+ "clap 4.5.54",
  "env_logger",
  "log",
  "plain",
@@ -1778,10 +1776,9 @@ dependencies = [
 [[package]]
 name = "redox-ioctl"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#99e8cd93e0d125010130d8e3aee7d343735d8b5c"
 dependencies = [
  "drm-sys",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -1805,31 +1802,28 @@ checksum = "436d45c2b6a5b159d43da708e62b25be3a4a3d5550d654b72216ade4c4bfd717"
 [[package]]
 name = "redox-rt"
 version = "0.1.0"
-source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#99e8cd93e0d125010130d8e3aee7d343735d8b5c"
 dependencies = [
  "bitflags 2.10.0",
  "generic-rt",
  "goblin",
  "plain",
  "redox-path",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
 name = "redox-scheme"
 version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cea2668a5932f878a4298a1d7f8950249bbbb77120fb263da252c589152f5ea"
 dependencies = [
  "libredox",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
 name = "redox_event"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8eafe403549fab08a0c0862769493ad992625bb5a694aae2df6901e7e4fd05a"
+checksum = "c30b73c93693667b5a8e6f54bddcc5a57449ef17c99f4b55c12d5bae4ab79e82"
 dependencies = [
  "bitflags 2.10.0",
  "libredox",
@@ -1846,7 +1840,7 @@ dependencies = [
  "redox-log",
  "redox-scheme",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "smoltcp",
 ]
 
@@ -1861,9 +1855,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec96166dafa0886eb81fe1c0a388bece180fbef2135f97c1e2cf8302e74b43b5"
+checksum = "49f3fe0889e69e2ae9e41f4d6c4c0181701d00e4697b356fb1f74173a5e0ee27"
 dependencies = [
  "bitflags 2.10.0",
 ]
@@ -1883,7 +1877,7 @@ dependencies = [
  "libredox",
  "qemu-exit",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "redox_termios",
 ]
 
@@ -1957,7 +1951,7 @@ dependencies = [
  "log",
  "pcid",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -1972,7 +1966,7 @@ dependencies = [
  "log",
  "pcid",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -2000,12 +1994,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
-name = "ryu"
-version = "1.0.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
-
-[[package]]
 name = "sb16d"
 version = "0.1.0"
 dependencies = [
@@ -2016,7 +2004,7 @@ dependencies = [
  "log",
  "redox-scheme",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "spin 0.9.8",
 ]
 
@@ -2063,14 +2051,14 @@ checksum = "1db149f81d46d2deba7cd3c50772474707729550221e69588478ebf9ada425ae"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.111",
+ "syn 2.0.113",
 ]
 
 [[package]]
 name = "sdl2"
-version = "0.35.2"
+version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7959277b623f1fb9e04aea73686c3ca52f01b2145f8ea16f4ff30d8b7623b1a"
+checksum = "2d42407afc6a8ab67e36f92e80b8ba34cbdc55aaeed05249efe9a2e8d0e9feef"
 dependencies = [
  "bitflags 1.3.2",
  "lazy_static",
@@ -2080,9 +2068,9 @@ dependencies = [
 
 [[package]]
 name = "sdl2-sys"
-version = "0.35.2"
+version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3586be2cf6c0a8099a79a12b4084357aa9b3e0b0d7980e3b67aaf7a9d55f9f0"
+checksum = "3ff61407fc75d4b0bbc93dc7e4d6c196439965fbef8e4a4f003a36095823eac0"
 dependencies = [
  "cfg-if 1.0.4",
  "libc",
@@ -2116,20 +2104,20 @@ checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.111",
+ "syn 2.0.113",
 ]
 
 [[package]]
 name = "serde_json"
-version = "1.0.145"
+version = "1.0.148"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "402a6f66d8c709116cf22f558eab210f5a50187f702eb4d7e5ef38d9a7f1c79c"
+checksum = "3084b546a1dd6289475996f182a22aba973866ea8e8b02c51d9f46b1336a22da"
 dependencies = [
  "itoa",
  "memchr 2.7.6",
- "ryu",
  "serde",
  "serde_core",
+ "zmij",
 ]
 
 [[package]]
@@ -2262,9 +2250,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.111"
+version = "2.0.113"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "390cc9a294ab71bdb1aa2e99d13be9c753cd2d7bd6560c77118597410c4d2e87"
+checksum = "678faa00651c9eb72dd2020cbdf275d92eccb2400d568e419efdd64838145cb4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2325,7 +2313,7 @@ checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.111",
+ "syn 2.0.113",
 ]
 
 [[package]]
@@ -2336,7 +2324,7 @@ checksum = "3ff15c8ecd7de3849db632e14d18d2571fa09dfc5ed93479bc4485c7a517c913"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.111",
+ "syn 2.0.113",
 ]
 
 [[package]]
@@ -2428,7 +2416,7 @@ dependencies = [
  "inputd",
  "log",
  "orbclient",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "rehid",
  "xhcid",
 ]
@@ -2439,7 +2427,7 @@ version = "0.1.0"
 dependencies = [
  "common",
  "log",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "xhcid",
 ]
 
@@ -2453,7 +2441,7 @@ dependencies = [
  "libredox",
  "plain",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "thiserror 1.0.69",
  "xhcid",
 ]
@@ -2491,7 +2479,7 @@ dependencies = [
  "orbclient",
  "pcid",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -2520,7 +2508,7 @@ dependencies = [
  "orbclient",
  "ransid",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -2536,7 +2524,7 @@ dependencies = [
  "log",
  "pcid",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "spin 0.10.0",
  "static_assertions",
  "thiserror 1.0.69",
@@ -2555,7 +2543,7 @@ dependencies = [
  "log",
  "pcid",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "static_assertions",
  "thiserror 1.0.69",
 ]
@@ -2578,7 +2566,7 @@ dependencies = [
  "orbclient",
  "pcid",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "spin 0.9.8",
  "static_assertions",
  "virtio-core",
@@ -2595,7 +2583,7 @@ dependencies = [
  "libredox",
  "log",
  "pcid",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "static_assertions",
  "virtio-core",
 ]
@@ -2662,7 +2650,7 @@ dependencies = [
  "bumpalo",
  "proc-macro2",
  "quote",
- "syn 2.0.111",
+ "syn 2.0.113",
  "wasm-bindgen-shared",
 ]
 
@@ -2727,7 +2715,7 @@ checksum = "053e2e040ab57b9dc951b72c264860db7eb3b0200ba345b4e4c3b14f67855ddf"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.111",
+ "syn 2.0.113",
 ]
 
 [[package]]
@@ -2738,7 +2726,7 @@ checksum = "3f316c4a2570ba26bbec722032c4099d8c8bc095efccdc15688708623367e358"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.111",
+ "syn 2.0.113",
 ]
 
 [[package]]
@@ -2806,7 +2794,7 @@ dependencies = [
  "plain",
  "redox-scheme",
  "redox_event",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
  "regex",
  "serde",
  "serde_json",
@@ -2832,7 +2820,7 @@ checksum = "d8a8d209fdf45cf5138cbb5a506f6b52522a25afccc534d1475dad8e31105c6a"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.111",
+ "syn 2.0.113",
 ]
 
 [[package]]
@@ -2842,5 +2830,19 @@ dependencies = [
  "daemon",
  "libredox",
  "redox-scheme",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
+
+[[package]]
+name = "zmij"
+version = "1.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30e0d8dffbae3d840f64bda38e28391faef673a7b5a6017840f2a106c8145868"
+
+[[patch.unused]]
+name = "relibc"
+version = "0.2.5"
+
+[[patch.unused]]
+name = "relibc"
+version = "0.2.5"

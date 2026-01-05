@@ -127,12 +127,11 @@ impl<'sock> UdsDgramScheme<'sock> {
             socket_paths: HashMap::new(),
             socket_tokens: HashMap::new(),
             socket,
-            proc_creds_capability: syscall::openat(
-                0,
+            proc_creds_capability: libredox::call::open(
                 "/scheme/proc/proc-creds-capability",
-                syscall::O_RDONLY,
+                libredox::flag::O_RDONLY,
                 0,
-            )?,
+            ).map_err(|e| syscall::Error::new(e.errno()))?,
             rng: SmallRng::from_entropy(),
         })
     }

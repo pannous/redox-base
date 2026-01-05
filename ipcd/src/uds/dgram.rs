@@ -127,9 +127,11 @@ impl<'sock> UdsDgramScheme<'sock> {
             socket_paths: HashMap::new(),
             socket_tokens: HashMap::new(),
             socket,
-            proc_creds_capability: syscall::open(
+            proc_creds_capability: syscall::openat(
+                0,
                 "/scheme/proc/proc-creds-capability",
                 syscall::O_RDONLY,
+                0,
             )?,
             rng: SmallRng::from_entropy(),
         })

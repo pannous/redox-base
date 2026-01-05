@@ -5,8 +5,9 @@ redox-rt = { path = "/opt/other/redox/recipes/core/relibc/source/redox-rt" }
 redox-ioctl = { path = "/opt/other/redox/recipes/core/relibc/source/redox-ioctl" }
 
 [patch.crates-io]
-# Also patch libc crate's relibc dependency if needed
+# Patch relibc and redox-rt to ensure proc feature is enabled everywhere
 relibc = { path = "/opt/other/redox/recipes/core/relibc/source" }
+redox-rt = { path = "/opt/other/redox/recipes/core/relibc/source/redox-rt" }
 
 # Use local patched redox-scheme with redox_syscall 0.7
 redox-scheme = { path = "/tmp/redox-scheme" }

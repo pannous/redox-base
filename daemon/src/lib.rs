@@ -13,31 +13,9 @@ fn errno() -> io::Error {
 
 impl Daemon {
     pub fn new<F: FnOnce(Daemon) -> !>(f: F) -> ! {
-        let (mut read_pipe, write_pipe) = std::io::pipe().unwrap();
-
-        match unsafe { libc::fork() } {
-            0 => {
-                drop(read_pipe);
-
-                f(Daemon { write_pipe })
-            }
-            -1 => return Err(errno()).unwrap(),
-            _pid => {
-                drop(write_pipe);
-
-                let mut data = [0];
-
-                match read_pipe.read_exact(&mut data) {
-                    Ok(()) => {}
-                    Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
-                        unsafe { libc::_exit(101) };
-                    }
-                    Err(err) => return Err(err).unwrap(),
-                };
-
-                unsafe { libc::_exit(data[0].into()) };
-            }
-        }
+        // Skip forking - run directly (workaround for Cranelift build duplicate redox-rt issue)
+        let (_read_pipe, write_pipe) = std::io::pipe().unwrap();
+        f(Daemon { write_pipe })
     }
 
     pub fn ready(mut self) {

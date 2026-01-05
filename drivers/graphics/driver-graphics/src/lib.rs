@@ -1,5 +1,3 @@
-#![feature(slice_as_array)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::c_char;
 use std::fmt::Debug;

@@ -85,6 +85,7 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> Result<
     log::info!("virtio-9pd: version negotiated");
 
     // Attach to root
+    log::info!("virtio-9pd: calling attach...");
     let root_qid = client.attach(&mount_tag)?;
     log::info!("virtio-9pd: attached to root, qid={:?}", root_qid);
 

@@ -28,6 +28,9 @@ lived
 run /scheme/initfs/etc/init_drivers.rc
 unset RSDP_ADDR RSDP_SIZE
 
+# Test virtio-9p filesystem
+test-9p
+
 # Mount rootfs
 redoxfs --uuid $REDOXFS_UUID file $REDOXFS_BLOCK
 unset REDOXFS_UUID REDOXFS_BLOCK REDOXFS_PASSWORD_ADDR REDOXFS_PASSWORD_SIZE

@@ -15,11 +15,22 @@ BINS="init logd ramfs randd zerod"
 # Driver binaries
 BINS="$BINS acpid fbbootlogd fbcond hwd inputd lived nvmed pcid pcid-spawner rtcd vesad"
 # Virtio for QEMU
-BINS="$BINS virtio-blkd virtio-gpud"
+BINS="$BINS virtio-blkd virtio-gpud virtio-9pd"
+# Test binary
+BINS="$BINS test-9p"
 
 export DYLD_LIBRARY_PATH=~/.rustup/toolchains/${NIGHTLY}-aarch64-apple-darwin/lib
 
-export RUSTFLAGS="-Zcodegen-backend=${CRANELIFT} -Clink-arg=-L${RELIBC} -Clink-arg=-lunwind_stubs -Clink-arg=-z -Clink-arg=muldefs -Cpanic=abort"
+export RUSTFLAGS="-Zcodegen-backend=${CRANELIFT} \
+  -Crelocation-model=static \
+  -Clink-arg=-L${RELIBC} \
+  -Clink-arg=${RELIBC}/crt0.o \
+  -Clink-arg=${RELIBC}/crt0_rust.o \
+  -Clink-arg=${RELIBC}/crti.o \
+  -Clink-arg=${RELIBC}/crtn.o \
+  -Clink-arg=-lunwind_stubs \
+  -Clink-arg=-z -Clink-arg=muldefs \
+  -Cpanic=abort"
 
 echo "=== Building initfs binaries ==="
 cargo +${NIGHTLY} build \
@@ -34,10 +45,10 @@ rm -rf /tmp/initfs-cranelift
 mkdir -p /tmp/initfs-cranelift/bin /tmp/initfs-cranelift/lib/drivers /tmp/initfs-cranelift/etc/pcid
 
 # Strip and copy binaries
-for bin in init logd ramfs randd zerod pcid pcid-spawner acpid fbbootlogd fbcond hwd inputd lived rtcd vesad; do
+for bin in init logd ramfs randd zerod pcid pcid-spawner acpid fbbootlogd fbcond hwd inputd lived rtcd vesad test-9p; do
     llvm-strip -o /tmp/initfs-cranelift/bin/$bin target/aarch64-unknown-redox-clif/release/$bin
 done
-for bin in nvmed virtio-blkd virtio-gpud; do
+for bin in nvmed virtio-blkd virtio-gpud virtio-9pd; do
     llvm-strip -o /tmp/initfs-cranelift/lib/drivers/$bin target/aarch64-unknown-redox-clif/release/$bin
 done
 

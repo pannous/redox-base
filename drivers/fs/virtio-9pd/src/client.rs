@@ -12,6 +12,37 @@ use virtio_core::transport::Queue;
 use crate::protocol::*;
 
 const MSIZE: u32 = 8192; // Maximum message size
+
+/// Simple spin-polling for futures without an async runtime
+fn spin_poll<F: std::future::Future>(mut future: F) -> F::Output {
+    use std::pin::Pin;
+    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+
+    // Create a no-op waker
+    fn clone_fn(_: *const ()) -> RawWaker { RawWaker::new(std::ptr::null(), &VTABLE) }
+    fn wake_fn(_: *const ()) {}
+    fn wake_by_ref_fn(_: *const ()) {}
+    fn drop_fn(_: *const ()) {}
+    static VTABLE: RawWakerVTable = RawWakerVTable::new(clone_fn, wake_fn, wake_by_ref_fn, drop_fn);
+
+    let waker = unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) };
+    let mut cx = Context::from_waker(&waker);
+
+    // SAFETY: We never move the future after pinning
+    let mut future = unsafe { Pin::new_unchecked(&mut future) };
+
+    loop {
+        match future.as_mut().poll(&mut cx) {
+            Poll::Ready(result) => return result,
+            Poll::Pending => {
+                // Spin and yield to let the device process
+                for _ in 0..100 {
+                    core::hint::spin_loop();
+                }
+            }
+        }
+    }
+}
 const VERSION: &str = "9P2000.L";
 
 /// 9P client over virtio-9p
@@ -44,6 +75,8 @@ impl<'a> Client9p<'a> {
 
     /// Send a 9P message and receive response
     fn transact(&self, request: Vec<u8>) -> Result<Vec<u8>> {
+        log::info!("transact: sending {} bytes", request.len());
+
         // Allocate request buffer and copy data
         let mut req_dma = unsafe {
             Dma::<[u8]>::zeroed_slice(request.len())
@@ -59,12 +92,18 @@ impl<'a> Client9p<'a> {
                 .assume_init()
         };
 
+        log::info!("transact: DMA buffers allocated, building chain");
+
         let chain = ChainBuilder::new()
             .chain(Buffer::new_sized(&req_dma, req_dma.len()))
             .chain(Buffer::new_sized(&resp_dma, resp_dma.len()).flags(DescriptorFlags::WRITE_ONLY))
             .build();
 
-        let written = futures::executor::block_on(self.queue.send(chain)) as usize;
+        log::info!("transact: calling queue.send()");
+        // Use spin-polling instead of futures executor since we don't have an event loop
+        let pending = self.queue.send(chain);
+        let written = spin_poll(pending) as usize;
+        log::info!("transact: queue.send() returned {} bytes", written);
 
         // Parse response
         if written < Header::SIZE {

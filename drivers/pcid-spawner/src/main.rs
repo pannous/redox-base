@@ -1,32 +1,49 @@
 use std::fs;
 use std::process::Command;
-use std::thread;
-use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 
 use pcid_interface::config::Config;
 use pcid_interface::PciFunctionHandle;
 
-fn wait_for_scheme(path: &str, max_retries: u32, delay_ms: u64) -> Result<fs::ReadDir> {
-    for i in 0..max_retries {
+fn busy_wait_ms(ms: u64) {
+    // Use sched_yield syscall to actually wait - spin loops get optimized away
+    // Each yield gives up timeslice to other processes
+    let yields_per_ms = 10; // Approximate
+    for _ in 0..(ms * yields_per_ms) {
+        let _ = syscall::sched_yield();
+    }
+}
+
+fn wait_for_scheme(path: &str, max_retries: u32, _delay_ms: u64) -> Result<fs::ReadDir> {
+    // Wait up to 30 seconds with 100 retries of 300ms each
+    for i in 0..100 {
         match fs::read_dir(path) {
-            Ok(dir) => return Ok(dir),
-            Err(e) if i < max_retries - 1 => {
-                log::debug!("pcid-spawner: waiting for {} (attempt {}/{}): {}", path, i + 1, max_retries, e);
-                thread::sleep(Duration::from_millis(delay_ms));
+            Ok(dir) => {
+                eprintln!("pcid-spawner: found {} after {} attempts", path, i + 1);
+                return Ok(dir);
             }
-            Err(e) => return Err(e.into()),
+            Err(_e) => {
+                if i % 10 == 0 {
+                    eprintln!("pcid-spawner: waiting for {} (attempt {}/100)", path, i + 1);
+                }
+                busy_wait_ms(300); // 300ms per attempt
+            }
         }
     }
-    unreachable!()
+    eprintln!("pcid-spawner: gave up waiting for {} after 100 attempts (30s)", path);
+    Err(anyhow::anyhow!("timeout waiting for {}", path))
 }
 
 fn main() -> Result<()> {
+    eprintln!("pcid-spawner: starting");
+
     let mut args = pico_args::Arguments::from_env();
     let config_path = args
         .free_from_str::<String>()
         .expect("failed to parse --config argument");
+
+    eprintln!("pcid-spawner: config_path={}", config_path);
 
     common::setup_logging(
         "bus",
@@ -36,6 +53,7 @@ fn main() -> Result<()> {
         common::file_level(),
     );
 
+    eprintln!("pcid-spawner: checking config file");
     let config_data = if fs::metadata(&config_path)?.is_file() {
         fs::read_to_string(&config_path)?
     } else {
@@ -47,8 +65,10 @@ fn main() -> Result<()> {
         }
         config_data
     };
+    eprintln!("pcid-spawner: parsing config");
     let config: Config = toml::from_str(&config_data)?;
 
+    eprintln!("pcid-spawner: waiting for /scheme/pci");
     // Wait for pcid to register the pci scheme (workaround for race condition)
     for entry in wait_for_scheme("/scheme/pci", 50, 100)? {
         let entry = entry.context("failed to get entry")?;

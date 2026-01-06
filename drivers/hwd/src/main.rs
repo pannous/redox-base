@@ -3,69 +3,45 @@ use std::thread;
 use std::time::Duration;
 
 mod backend;
-use self::backend::{AcpiBackend, Backend, DeviceTreeBackend, LegacyBackend};
-
-fn daemon(daemon: daemon::Daemon) -> ! {
-    common::setup_logging(
-        "misc",
-        "hwd",
-        "hwd",
-        common::output_level(),
-        common::file_level(),
-    );
-
-    // Prefer DTB if available (matches kernel preference)
-    let mut backend: Box<dyn Backend> = match DeviceTreeBackend::new() {
-        Ok(ok) => {
-            log::info!("using devicetree backend");
-            Box::new(ok)
-        }
-        Err(err) => {
-            log::debug!("cannot use devicetree backend: {}", err);
-            match AcpiBackend::new() {
-                Ok(ok) => {
-                    log::info!("using ACPI backend");
-                    Box::new(ok)
-                }
-                Err(err) => {
-                    log::debug!("cannot use ACPI backend: {}", err);
-
-                    log::info!("using legacy backend");
-                    Box::new(LegacyBackend)
-                }
-            }
-        }
-    };
-
-    //TODO: launch pcid based on backend information?
-    // Must launch after acpid but before probe calls /scheme/acpi/symbols
-    // Note: pcid runs as a daemon and never exits, so we don't wait for it.
-    // We give it time to register the scheme before continuing.
-    match process::Command::new("pcid").spawn() {
-        Ok(_child) => {
-            log::info!("spawned pcid, waiting for scheme registration");
-            // Give pcid time to register /scheme/pci
-            thread::sleep(Duration::from_millis(500));
-        }
-        Err(err) => {
-            log::error!("failed to spawn pcid: {}", err);
-        }
-    }
-
-    daemon.ready();
-
-    //TODO: HWD is meant to locate PCI/XHCI/etc devices in ACPI and DeviceTree definitions and start their drivers
-    match backend.probe() {
-        Ok(()) => {
-            process::exit(0);
-        }
-        Err(err) => {
-            log::error!("failed to probe with error {}", err);
-            process::exit(1);
-        }
-    }
-}
 
 fn main() {
-    daemon::Daemon::new(daemon);
+    // Minimal hwd - spawn acpid then pcid and exit
+    // Skip daemon forking since it causes issues with Cranelift relibc
+
+    eprintln!("hwd: starting minimal version");
+
+    // Spawn acpid first - needed for PCI ECAM config on aarch64
+    match process::Command::new("acpid").spawn() {
+        Ok(_child) => {
+            eprintln!("hwd: spawned acpid");
+        }
+        Err(err) => {
+            eprintln!("hwd: failed to spawn acpid: {}", err);
+        }
+    }
+
+    eprintln!("hwd: sleeping after acpid...");
+    // Use a busy-wait loop instead of thread::sleep to avoid potential issues
+    let start = std::time::Instant::now();
+    while start.elapsed() < Duration::from_millis(500) {
+        std::hint::spin_loop();
+    }
+    eprintln!("hwd: done sleeping");
+
+    // Spawn pcid
+    match process::Command::new("pcid").spawn() {
+        Ok(_child) => {
+            eprintln!("hwd: spawned pcid");
+        }
+        Err(err) => {
+            eprintln!("hwd: failed to spawn pcid: {}", err);
+        }
+    }
+
+    eprintln!("hwd: sleeping after pcid...");
+    let start = std::time::Instant::now();
+    while start.elapsed() < Duration::from_millis(500) {
+        std::hint::spin_loop();
+    }
+    eprintln!("hwd: done");
 }

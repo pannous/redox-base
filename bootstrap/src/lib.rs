@@ -26,6 +26,7 @@ pub mod start;
 /// Compatibility module for syscall functions removed in redox_syscall 0.7.0
 pub mod compat {
     use syscall::error::Result;
+    use redox_rt::proc::FdGuard;
 
     /// SYS_OPEN was removed in 0.7.0 but kernel still supports it
     const SYS_OPEN: usize = 0x1000_0000 | 0x0010_0000 | 5;
@@ -34,6 +35,11 @@ pub mod compat {
     pub fn open<T: AsRef<str>>(path: T, flags: usize) -> Result<usize> {
         let path = path.as_ref();
         unsafe { syscall::syscall3(SYS_OPEN, path.as_ptr() as usize, path.len(), flags) }
+    }
+
+    /// Open a file and wrap in FdGuard (using legacy syscall)
+    pub fn open_fd<T: AsRef<str>>(path: T, flags: usize) -> Result<FdGuard> {
+        open(path, flags).map(FdGuard::new)
     }
 }
 

@@ -62,6 +62,8 @@ cd bootstrap
 cd ..
 
 echo "=== Creating initfs archive ==="
+# Clear RUSTFLAGS for host tool build (not cross-compiled)
+unset RUSTFLAGS
 cargo run --manifest-path initfs/tools/Cargo.toml --bin redox-initfs-ar -- \
     /tmp/initfs-cranelift /tmp/bootstrap-cranelift-stripped -o /tmp/initfs-cranelift.img
 

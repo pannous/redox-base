@@ -537,7 +537,8 @@ enum WaitpidTarget {
 struct RawEventQueue(FdGuard);
 impl RawEventQueue {
     pub fn new() -> Result<Self> {
-        FdGuard::open("/scheme/event", O_CREAT).map(Self)
+        // Use legacy SYS_OPEN - openat(0, path) returns EOPNOTSUPP for scheme paths
+        crate::compat::open_fd("/scheme/event", O_CREAT).map(Self)
     }
     pub fn subscribe(&self, fd: usize, ident: usize, flags: EventFlags) -> Result<()> {
         self.0.write(&Event {

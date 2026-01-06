@@ -26,7 +26,8 @@ impl log::Log for Logger {
 }
 
 pub fn main() -> ! {
-    let auth = FdGuard::open("/scheme/kernel.proc/authority", O_CLOEXEC)
+    // Use legacy SYS_OPEN - openat(0, path) returns EOPNOTSUPP for scheme paths
+    let auth = crate::compat::open_fd("/scheme/kernel.proc/authority", O_CLOEXEC)
         .expect("failed to get proc authority");
     let this_thr_fd = auth
         .dup(b"cur-context")
@@ -40,7 +41,7 @@ pub fn main() -> ! {
 
     let mut env_bytes = [0_u8; 4096];
     let envs = {
-        let fd = FdGuard::open("/scheme/sys/env", O_RDONLY | O_CLOEXEC)
+        let fd = crate::compat::open_fd("/scheme/sys/env", O_RDONLY | O_CLOEXEC)
             .expect("bootstrap: failed to open env");
         let bytes_read = fd
             .read(&mut env_bytes)
@@ -103,7 +104,7 @@ pub fn main() -> ! {
 
     let path = "/scheme/initfs/bin/init";
 
-    let image_file = FdGuard::open(path, O_RDONLY | O_CLOEXEC)
+    let image_file = crate::compat::open_fd(path, O_RDONLY | O_CLOEXEC)
         .expect("failed to open init")
         .to_upper()
         .unwrap();

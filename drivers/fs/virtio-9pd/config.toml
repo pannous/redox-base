@@ -1,0 +1,7 @@
+[[drivers]]
+name = "virtio-9p"
+class = 1
+subclass = 0
+vendor = 0x1AF4
+device = 0x1009
+command = ["virtio-9pd"]

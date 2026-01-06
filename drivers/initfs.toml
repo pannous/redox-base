@@ -35,3 +35,11 @@ class = 3
 vendor = 0x1AF4
 device = 0x1050
 command = ["/scheme/initfs/lib/drivers/virtio-gpud"]
+
+[[drivers]]
+name = "virtio-9p"
+class = 1
+subclass = 0
+vendor = 0x1AF4
+device = 0x1009
+command = ["/scheme/initfs/lib/drivers/virtio-9pd"]

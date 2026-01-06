@@ -63,6 +63,8 @@ members = [
     "drivers/storage/usbscsid",
     "drivers/storage/virtio-blkd",
 
+    "drivers/fs/virtio-9pd",
+
     "drivers/usb/xhcid",
     "drivers/usb/usbctl",
     "drivers/usb/usbhubd",

@@ -1,0 +1,23 @@
+[package]
+name = "virtio-9pd"
+version = "0.1.0"
+edition = "2021"
+authors = ["Redox OS Developers"]
+
+[dependencies]
+anyhow = "1.0"
+log = "0.4"
+thiserror = "1.0"
+spin = "*"
+futures = { version = "0.3", features = ["executor"] }
+
+redox_event = "0.4"
+redox_syscall = { version = "0.6", features = ["std"] }
+
+common = { path = "../../common" }
+daemon = { path = "../../../daemon" }
+pcid = { path = "../../pcid" }
+virtio-core = { path = "../../virtio-core" }
+libredox = "0.1.11"
+redox-scheme = { path = "../../../redox-scheme" }
+indexmap = "2"

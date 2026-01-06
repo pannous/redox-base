@@ -1,4 +1,6 @@
 use std::process;
+use std::thread;
+use std::time::Duration;
 
 mod backend;
 use self::backend::{AcpiBackend, Backend, DeviceTreeBackend, LegacyBackend};
@@ -37,17 +39,14 @@ fn daemon(daemon: daemon::Daemon) -> ! {
 
     //TODO: launch pcid based on backend information?
     // Must launch after acpid but before probe calls /scheme/acpi/symbols
+    // Note: pcid runs as a daemon and never exits, so we don't wait for it.
+    // We give it time to register the scheme before continuing.
     match process::Command::new("pcid").spawn() {
-        Ok(mut child) => match child.wait() {
-            Ok(status) => {
-                if !status.success() {
-                    log::error!("pcid exited with status {}", status);
-                }
-            }
-            Err(err) => {
-                log::error!("failed to wait for pcid: {}", err);
-            }
-        },
+        Ok(_child) => {
+            log::info!("spawned pcid, waiting for scheme registration");
+            // Give pcid time to register /scheme/pci
+            thread::sleep(Duration::from_millis(500));
+        }
         Err(err) => {
             log::error!("failed to spawn pcid: {}", err);
         }

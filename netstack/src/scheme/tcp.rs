@@ -300,4 +300,12 @@ impl<'a> SchemeSocket for TcpSocket<'a> {
 
         Ok(i)
     }
+
+    fn handle_get_peer_name(
+        &self,
+        file: &SchemeFile<Self>,
+        buf: &mut [u8],
+    ) -> SyscallResult<usize> {
+        self.fpath(file, buf)
+    }
 }

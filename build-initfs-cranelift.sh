@@ -64,9 +64,9 @@ else
     echo "WARNING: redoxfs not found at $REDOXFS"
 fi
 
-# Copy config files
+# Copy config files (use aarch64 init_drivers.rc for ARM)
 cp init.rc /tmp/initfs-cranelift/etc/init.rc
-cp init_drivers.rc /tmp/initfs-cranelift/etc/init_drivers.rc
+cp aarch64-unknown-redox/init_drivers.rc /tmp/initfs-cranelift/etc/init_drivers.rc
 cp drivers/initfs.toml /tmp/initfs-cranelift/etc/pcid/initfs.toml
 
 echo "=== Building bootstrap ==="

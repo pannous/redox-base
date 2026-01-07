@@ -28,10 +28,16 @@ lived
 run /scheme/initfs/etc/init_drivers.rc
 unset RSDP_ADDR RSDP_SIZE
 
-# Test Cranelift ls directly
-ls /scheme/
-# Also run test-9p for 9p verification
+# Test ls on initfs scheme
+echo === Testing ls on initfs ===
+ls /scheme/initfs/
+echo === Testing ls on initfs/bin ===
+ls /scheme/initfs/bin/
+
+# Test 9p filesystem
+echo === Testing 9p filesystem ===
 test-9p
+ls /scheme/9p.hostshare/
 
 # Mount rootfs
 redoxfs --uuid $REDOXFS_UUID file $REDOXFS_BLOCK

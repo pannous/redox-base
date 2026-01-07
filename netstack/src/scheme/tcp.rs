@@ -79,6 +79,7 @@ impl<'a> SchemeSocket for TcpSocket<'a> {
         let tx_buffer = TcpSocketBuffer::new(tx_packets);
         let socket = TcpSocket::new(rx_buffer, tx_buffer);
 
+        // TODO: claim port with ethernet ip address
         if local_endpoint.port == 0 {
             local_endpoint.port = port_set
                 .get_port()
@@ -95,6 +96,7 @@ impl<'a> SchemeSocket for TcpSocket<'a> {
             let local_endpoint_addr = match local_endpoint.addr {
                 Some(addr) if !addr.is_unspecified() => Some(addr),
                 _ => {
+                    // local ip is 0.0.0.0, resolve it
                     let route_table = context.route_table.borrow();
                     let addr = route_table
                         .lookup_src_addr(&remote_endpoint.addr.expect("Checked in is_specified"));

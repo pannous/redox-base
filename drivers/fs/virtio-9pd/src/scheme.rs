@@ -168,8 +168,9 @@ impl SchemeSync for Scheme9p<'_> {
         };
 
         // Check directory flag consistency
+        // Allow O_DIRECTORY on regular files if O_STAT is set (for stat operations)
         let is_dir = qid.is_dir();
-        if flags & O_DIRECTORY != 0 && !is_dir {
+        if flags & O_DIRECTORY != 0 && !is_dir && flags & O_STAT == 0 {
             let _ = self.client.clunk(fid);
             return Err(Error::new(ENOTDIR));
         }

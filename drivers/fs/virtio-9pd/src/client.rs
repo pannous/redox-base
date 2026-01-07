@@ -75,7 +75,7 @@ impl<'a> Client9p<'a> {
 
     /// Send a 9P message and receive response
     fn transact(&self, request: Vec<u8>) -> Result<Vec<u8>> {
-        log::info!("transact: sending {} bytes", request.len());
+        log::trace!("transact: sending {} bytes", request.len());
 
         // Allocate request buffer and copy data
         let mut req_dma = unsafe {
@@ -92,18 +92,18 @@ impl<'a> Client9p<'a> {
                 .assume_init()
         };
 
-        log::info!("transact: DMA buffers allocated, building chain");
+        log::trace!("transact: DMA buffers allocated, building chain");
 
         let chain = ChainBuilder::new()
             .chain(Buffer::new_sized(&req_dma, req_dma.len()))
             .chain(Buffer::new_sized(&resp_dma, resp_dma.len()).flags(DescriptorFlags::WRITE_ONLY))
             .build();
 
-        log::info!("transact: calling queue.send()");
+        log::trace!("transact: calling queue.send()");
         // Use spin-polling instead of futures executor since we don't have an event loop
         let pending = self.queue.send(chain);
         let written = spin_poll(pending) as usize;
-        log::info!("transact: queue.send() returned {} bytes", written);
+        log::trace!("transact: queue.send() returned {} bytes", written);
 
         // Parse response
         if written < Header::SIZE {

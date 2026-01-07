@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
 use std::path::Path;
@@ -43,8 +43,9 @@ impl LegacyInterruptLine {
                     "unexpected number of IRQ description cells for phandle {phandle}: {cells}"
                 ),
             };
-            File::create(path)
-                .unwrap_or_else(|err| panic!("{driver}: failed to open IRQ file: {err}"))
+            // Try to open existing IRQ file first, then create if it doesn't exist
+            File::open(&path).or_else(|_| File::create(&path))
+                .unwrap_or_else(|err| panic!("{driver}: failed to open IRQ file {path}: {err}"))
         } else {
             File::open(format!("/scheme/irq/{}", self.irq))
                 .unwrap_or_else(|err| panic!("{driver}: failed to open IRQ file: {err}"))

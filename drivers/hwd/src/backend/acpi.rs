@@ -11,9 +11,10 @@ impl Backend for AcpiBackend {
     fn new() -> Result<Self, Box<dyn Error>> {
         let rxsdt = fs::read("/scheme/kernel.acpi/rxsdt")?;
 
-        // Spawn acpid
-        //TODO: pass rxsdt data to acpid?
-        Command::new("acpid").spawn()?.wait()?;
+        // Spawn acpid - don't wait() since it's a daemon that never exits
+        // Give it time to register the /scheme/acpi scheme
+        Command::new("acpid").spawn()?;
+        std::thread::sleep(std::time::Duration::from_millis(500));
 
         Ok(Self { rxsdt })
     }

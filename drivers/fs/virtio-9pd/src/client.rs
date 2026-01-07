@@ -257,6 +257,11 @@ impl<'a> Client9p<'a> {
 
     /// Read from file
     pub fn read(&self, fid: u32, offset: u64, count: u32) -> Result<Vec<u8>> {
+        // Limit count to fit response in msize buffer
+        // Response: header (7) + data_len (4) + data
+        let max_data = self.msize.saturating_sub(7 + 4);
+        let count = count.min(max_data);
+
         let tag = self.next_tag();
         let msg = MessageBuilder::new(MsgType::Tread, tag)
             .put_u32(fid)

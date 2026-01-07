@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::io::Read;
+use std::process::Command;
 
 fn main() {
     eprintln!("test-9p: starting");
@@ -49,5 +50,35 @@ fn main() {
             }
         }
         Err(e) => eprintln!("test-9p: failed to list dir: {}", e),
+    }
+
+    // Test executing simple-ls from initfs (Cranelift-compiled)
+    let ls_path = "/scheme/initfs/bin/ls";
+    eprintln!("test-9p: testing Cranelift-compiled ls from initfs");
+
+    match fs::metadata(ls_path) {
+        Ok(meta) => {
+            eprintln!("test-9p: {} exists, size={}", ls_path, meta.len());
+            eprintln!("test-9p: executing {} /scheme/", ls_path);
+            match Command::new(ls_path).arg("/scheme/").output() {
+                Ok(output) => {
+                    eprintln!("test-9p: ls exit status: {:?}", output.status);
+                    if !output.stdout.is_empty() {
+                        eprintln!("test-9p: ls stdout:");
+                        for line in String::from_utf8_lossy(&output.stdout).lines() {
+                            eprintln!("  {}", line);
+                        }
+                    }
+                    if !output.stderr.is_empty() {
+                        eprintln!("test-9p: ls stderr: {}", String::from_utf8_lossy(&output.stderr));
+                    }
+                    if output.status.success() {
+                        eprintln!("test-9p: CRANELIFT LS SUCCESS!");
+                    }
+                }
+                Err(e) => eprintln!("test-9p: failed to execute ls: {}", e),
+            }
+        }
+        Err(e) => eprintln!("test-9p: {} not found: {}", ls_path, e),
     }
 }

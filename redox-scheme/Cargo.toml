@@ -35,7 +35,7 @@ name = "redox_scheme"
 path = "src/lib.rs"
 
 [dependencies.libredox]
-version = "0.1.12"
+version = "=0.1.11"
 features = [
     "redox_syscall",
     "call",
@@ -43,4 +43,4 @@ features = [
 default-features = false
 
 [dependencies.redox_syscall]
-version = "0.7.0"
+version = "0.6.0"

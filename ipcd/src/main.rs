@@ -12,8 +12,14 @@ use self::uds::dgram::UdsDgramScheme;
 use self::uds::stream::UdsStreamScheme;
 
 fn main() {
+    eprintln!("ipcd: main() A");
+    let _ = std::io::stderr().flush();
+    eprintln!("ipcd: main() B - calling Daemon::new");
+    let _ = std::io::stderr().flush();
     daemon::Daemon::new(daemon_runner);
 }
+
+use std::io::Write;
 
 fn daemon_runner(daemon: daemon::Daemon) -> ! {
     // TODO: Better error handling
@@ -27,6 +33,7 @@ fn daemon_runner(daemon: daemon::Daemon) -> ! {
 }
 
 fn inner(daemon: daemon::Daemon) -> anyhow::Result<()> {
+    eprintln!("ipcd: inner() called - before any fork related code");
     event::user_data! {
         enum EventSource {
             ChanSocket,
@@ -37,20 +44,26 @@ fn inner(daemon: daemon::Daemon) -> anyhow::Result<()> {
     }
 
     // Prepare chan scheme
+    eprintln!("ipcd: creating chan scheme...");
     let chan_socket = Socket::nonblock("chan")
         .map_err(|e| anyhow::anyhow!("failed to create chan scheme: {e}"))?;
+    eprintln!("ipcd: chan scheme created");
     let chan = Mutex::new(ChanScheme::new(&chan_socket));
     let mut chan_handler = ReadinessBased::new(&chan_socket, 16);
 
     // Prepare shm scheme
+    eprintln!("ipcd: creating shm scheme...");
     let shm_socket =
         Socket::nonblock("shm").map_err(|e| anyhow::anyhow!("failed to create shm socket: {e}"))?;
+    eprintln!("ipcd: shm scheme created");
     let shm = Mutex::new(ShmScheme::new());
     let mut shm_handler = ReadinessBased::new(&shm_socket, 16);
 
     // Prepare uds stream scheme
+    eprintln!("ipcd: creating uds_stream scheme...");
     let uds_stream_socket = Socket::nonblock("uds_stream")
         .map_err(|e| anyhow::anyhow!("failed to create uds stream scheme: {e}"))?;
+    eprintln!("ipcd: uds_stream scheme created");
     let uds_stream = Mutex::new(
         UdsStreamScheme::new(&uds_stream_socket)
             .map_err(|e| anyhow::anyhow!("failed to create uds stream scheme: {e}"))?,
@@ -58,14 +71,17 @@ fn inner(daemon: daemon::Daemon) -> anyhow::Result<()> {
     let mut uds_stream_handler = ReadinessBased::new(&uds_stream_socket, 16);
 
     // Prepare uds dgram scheme
+    eprintln!("ipcd: creating uds_dgram scheme...");
     let uds_dgram_socket = Socket::nonblock("uds_dgram")
         .map_err(|e| anyhow::anyhow!("failed to create uds dgram scheme: {e}"))?;
+    eprintln!("ipcd: uds_dgram scheme created");
     let uds_dgram = Mutex::new(
         UdsDgramScheme::new(&uds_dgram_socket)
             .map_err(|e| anyhow::anyhow!("failed to create uds dgram scheme: {e}"))?,
     );
     let mut uds_dgram_handler = ReadinessBased::new(&uds_dgram_socket, 16);
 
+    eprintln!("ipcd: calling daemon.ready()");
     daemon.ready();
 
     // Create event listener for both files

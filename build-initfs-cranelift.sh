@@ -16,8 +16,8 @@ BINS="init logd ramfs randd zerod"
 BINS="$BINS acpid fbbootlogd fbcond hwd inputd lived nvmed pcid pcid-spawner rtcd vesad"
 # Virtio for QEMU
 BINS="$BINS virtio-blkd virtio-gpud virtio-9pd"
-# Test binary
-BINS="$BINS test-9p"
+# Test binaries
+BINS="$BINS test-9p simple-ls"
 
 export DYLD_LIBRARY_PATH=~/.rustup/toolchains/${NIGHTLY}-aarch64-apple-darwin/lib
 
@@ -45,9 +45,11 @@ rm -rf /tmp/initfs-cranelift
 mkdir -p /tmp/initfs-cranelift/bin /tmp/initfs-cranelift/lib/drivers /tmp/initfs-cranelift/etc/pcid
 
 # Strip and copy binaries
-for bin in init logd ramfs randd zerod pcid pcid-spawner acpid fbbootlogd fbcond hwd inputd lived rtcd vesad test-9p; do
+for bin in init logd ramfs randd zerod pcid pcid-spawner acpid fbbootlogd fbcond hwd inputd lived rtcd vesad test-9p simple-ls; do
     llvm-strip -o /tmp/initfs-cranelift/bin/$bin target/aarch64-unknown-redox-clif/release/$bin
 done
+# Create 'ls' symlink/copy for convenience
+cp /tmp/initfs-cranelift/bin/simple-ls /tmp/initfs-cranelift/bin/ls
 for bin in nvmed virtio-blkd virtio-gpud virtio-9pd; do
     llvm-strip -o /tmp/initfs-cranelift/lib/drivers/$bin target/aarch64-unknown-redox-clif/release/$bin
 done

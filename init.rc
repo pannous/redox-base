@@ -28,7 +28,9 @@ lived
 run /scheme/initfs/etc/init_drivers.rc
 unset RSDP_ADDR RSDP_SIZE
 
-# Test virtio-9p filesystem
+# Test Cranelift ls directly
+ls /scheme/
+# Also run test-9p for 9p verification
 test-9p
 
 # Mount rootfs

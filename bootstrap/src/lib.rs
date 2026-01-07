@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(internal_features)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![feature(core_intrinsics, str_from_raw_parts)]
 
 #[cfg(target_arch = "aarch64")]

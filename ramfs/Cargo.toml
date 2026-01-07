@@ -10,7 +10,7 @@ description = "In-memory filesystem for Redox, which is useful for early logging
 
 [dependencies]
 daemon = { path = "../daemon" }
-redox_syscall = "0.7.0"
+redox_syscall = "0.6.0"
 redox-scheme = "0.8.3"
 libredox = { version = "0.1.11", features = ["call"] }
 indexmap = "2.5.0"

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::read_dir;
-use std::io::Result;
+use std::io::{Result, Write};
 use std::path::Path;
 use std::process::Command;
 use std::{env, fs};
@@ -32,6 +32,7 @@ fn run_command(line_raw: &str) {
     if line.is_empty() || line.starts_with('#') {
         return;
     }
+    debug_serial(&format!("init: running: {}", line));
     let mut args = line.split(' ').map(|arg| {
         if arg.starts_with('$') {
             env::var(&arg[1..]).unwrap_or(String::new())
@@ -182,10 +183,24 @@ fn run_command(line_raw: &str) {
     }
 }
 
+fn debug_serial(msg: &str) {
+    // Write directly to kernel debug scheme for early output
+    if let Ok(mut fd) = libredox::Fd::open("debug:", O_WRONLY, 0) {
+        let _ = fd.write(msg.as_bytes());
+        let _ = fd.write(b"\n");
+    }
+}
+
 pub fn main() {
+    debug_serial("=== init starting ===");
+
     let config = "/scheme/initfs/etc/init.rc";
+    debug_serial("init: opening init.rc");
+
     if let Err(err) = run(&Path::new(config)) {
-        println!("init: failed to run {}: {}", config, err);
+        let msg = format!("init: failed to run {}: {}", config, err);
+        debug_serial(&msg);
+        println!("{}", msg);
     }
 
     libredox::call::setrens(0, 0).expect("init: failed to enter null namespace");

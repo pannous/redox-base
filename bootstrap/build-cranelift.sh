@@ -16,7 +16,7 @@ cargo +${NIGHTLY} build \
   --target ${TARGET} \
   --release \
   -Z build-std=core,alloc \
-  -Zbuild-std-features=compiler_builtins/no-f16-f128
+  -Zbuild-std-features=compiler-builtins-mem,compiler_builtins/no-f16-f128
 
 echo "=== Linking bootstrap ELF ==="
 

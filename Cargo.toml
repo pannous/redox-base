@@ -16,6 +16,7 @@ members = [
     "zerod",
     "test-9p",
     "simple-ls",
+    "simple-coreutils",
 
     "drivers/common",
     "drivers/executor",

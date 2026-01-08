@@ -2,48 +2,53 @@
 # that should be set for every program.
 export PATH /scheme/initfs/bin
 export RUST_BACKTRACE 1
-rtcd
-nulld
-zerod
-randd
+# Parallelize independent daemons for faster boot
+nowait rtcd
+nowait nulld
+nowait zerod
+nowait randd
 
 # Logging
 logd
 stdio /scheme/log
-ramfs logging
+nowait ramfs logging
 
 # Graphics infrastructure
-inputd
+nowait inputd
 vesad
 unset FRAMEBUFFER_ADDR FRAMEBUFFER_VIRT FRAMEBUFFER_WIDTH FRAMEBUFFER_HEIGHT FRAMEBUFFER_STRIDE
 #TODO: unset FRAMEBUFFER1 and beyond?
-fbbootlogd
-fbcond 2
+nowait fbbootlogd
+nowait fbcond 2
 
 # Live disk
 # Note: Needs to start before drivers to ensure it gets priority when redoxfs searches for disks
-lived
+nowait lived
 
 # Drivers
 run /scheme/initfs/etc/init_drivers.rc
 unset RSDP_ADDR RSDP_SIZE
 
-# Test ls on initfs scheme
-echo === Testing ls on initfs ===
-ls /scheme/initfs/
-echo === Testing ls on initfs/bin ===
-ls /scheme/initfs/bin/
+
+# Mount rootfs
+redoxfs --uuid $REDOXFS_UUID file $REDOXFS_BLOCK
+unset REDOXFS_UUID REDOXFS_BLOCK REDOXFS_PASSWORD_ADDR REDOXFS_PASSWORD_SIZE
+
+
 
 # Test 9p filesystem
 echo === Testing 9p filesystem ===
 test-9p
 ls /scheme/9p.hostshare/
 
-# Mount rootfs
-redoxfs --uuid $REDOXFS_UUID file $REDOXFS_BLOCK
-unset REDOXFS_UUID REDOXFS_BLOCK REDOXFS_PASSWORD_ADDR REDOXFS_PASSWORD_SIZE
+echo === Testing simple-cat from 9p ===
+/scheme/9p.hostshare/simple-cat /scheme/9p.hostshare/hello
+
+echo === Testing simple-echo ===
+/scheme/9p.hostshare/simple-echo Hello from simple-coreutils!
 
 # Exit initfs
 cd /
 export PATH /usr/bin
+export LANG C
 run.d /usr/lib/init.d /etc/init.d

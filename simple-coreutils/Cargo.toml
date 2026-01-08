@@ -1,0 +1,30 @@
+[package]
+name = "simple-coreutils"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "simple-cat"
+path = "src/cat.rs"
+
+[[bin]]
+name = "simple-rm"
+path = "src/rm.rs"
+
+[[bin]]
+name = "simple-mkdir"
+path = "src/mkdir.rs"
+
+[[bin]]
+name = "simple-echo"
+path = "src/echo.rs"
+
+[[bin]]
+name = "simple-cp"
+path = "src/cp.rs"
+
+[[bin]]
+name = "simple-touch"
+path = "src/touch.rs"
+
+[dependencies]

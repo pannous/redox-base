@@ -50,6 +50,22 @@ impl<'a> Scheme9p<'a> {
         }
     }
 
+    /// Convert Redox open flags to 9P lopen flags (excludes O_CREAT - that's for lcreate only)
+    fn to_9p_lopen_flags(&self, flags: usize) -> u32 {
+        let mut p9_flags = match flags & O_ACCMODE {
+            O_RDONLY => protocol::P9_RDONLY,
+            O_WRONLY => protocol::P9_WRONLY,
+            O_RDWR => protocol::P9_RDWR,
+            _ => protocol::P9_RDONLY,
+        };
+
+        if flags & O_TRUNC != 0 {
+            p9_flags |= protocol::P9_TRUNC;
+        }
+        // Note: O_CREAT is NOT passed to lopen - lopen doesn't create files
+        p9_flags
+    }
+
     /// Walk a path from root, returning the final QID
     fn walk_path(&self, path: &str) -> Result<(u32, Qid)> {
         let new_fid = self.client.alloc_fid();
@@ -129,9 +145,9 @@ impl SchemeSync for Scheme9p<'_> {
     fn open(&mut self, path: &str, flags: usize, ctx: &CallerCtx) -> Result<OpenResult> {
         log::trace!("open: path='{}' flags={:#x}", path, flags);
 
-        // Walk to the path
-        let (fid, qid) = match self.walk_path(path) {
-            Ok(r) => r,
+        // Walk to the path - track whether we created the file (lcreate opens it)
+        let (fid, qid, already_opened) = match self.walk_path(path) {
+            Ok((fid, qid)) => (fid, qid, false),
             Err(e) if flags & O_CREAT != 0 => {
                 // File doesn't exist but O_CREAT is set - try to create it
                 // First walk to parent directory
@@ -151,7 +167,7 @@ impl SchemeSync for Scheme9p<'_> {
                     self.walk_path(parent_path)?
                 };
 
-                // Create the file
+                // Create the file - lcreate also opens it, so don't call lopen after
                 let mode = (flags & 0o7777) as u32 | 0o100000; // S_IFREG
                 let p9_flags = self.to_9p_flags(flags);
 
@@ -162,26 +178,24 @@ impl SchemeSync for Scheme9p<'_> {
                         Error::new(EIO)
                     })?;
 
-                (parent_fid, qid)
+                // lcreate repurposes parent_fid to point to new file AND opens it
+                (parent_fid, qid, true)
             }
             Err(e) => return Err(e),
         };
 
         // Check directory flag consistency
-        // Allow O_DIRECTORY on regular files if O_STAT is set (for stat operations)
+        // Don't reject O_DIRECTORY on files - Redox coreutils use it for stat
         let is_dir = qid.is_dir();
-        if flags & O_DIRECTORY != 0 && !is_dir && flags & O_STAT == 0 {
-            let _ = self.client.clunk(fid);
-            return Err(Error::new(ENOTDIR));
-        }
         if flags & O_STAT == 0 && flags & O_DIRECTORY == 0 && is_dir {
             let _ = self.client.clunk(fid);
             return Err(Error::new(EISDIR));
         }
 
-        // Open the file (unless O_STAT)
-        if flags & O_STAT == 0 {
-            let p9_flags = self.to_9p_flags(flags);
+        // Open the file (unless O_STAT or already opened by lcreate)
+        if flags & O_STAT == 0 && !already_opened {
+            // Use to_9p_lopen_flags which excludes O_CREAT (lopen doesn't create files)
+            let p9_flags = self.to_9p_lopen_flags(flags);
             let _ = self.client.lopen(fid, p9_flags).map_err(|e| {
                 log::debug!("lopen failed: {}", e);
                 let _ = self.client.clunk(fid);

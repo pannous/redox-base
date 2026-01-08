@@ -2,19 +2,69 @@
 use std::env;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
+use std::path::Path;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let path = if args.len() > 1 {
-        &args[1]
-    } else {
-        "."
-    };
+    // Parse flags
+    let mut show_long = false;
+    let mut show_all = false;
+    let mut paths: Vec<&str> = Vec::new();
 
-    let show_long = args.iter().any(|a| a == "-l");
-    let show_all = args.iter().any(|a| a == "-a");
+    for arg in &args[1..] {
+        if arg.starts_with('-') {
+            for c in arg.chars().skip(1) {
+                match c {
+                    'l' => show_long = true,
+                    'a' => show_all = true,
+                    _ => {}
+                }
+            }
+        } else {
+            paths.push(arg);
+        }
+    }
 
+    if paths.is_empty() {
+        paths.push(".");
+    }
+
+    for path in paths {
+        list_path(path, show_long, show_all);
+    }
+}
+
+fn list_path(path: &str, show_long: bool, show_all: bool) {
+    let p = Path::new(path);
+
+    // Handle single file
+    if p.is_file() {
+        if let Ok(meta) = fs::metadata(p) {
+            if show_long {
+                let mode = meta.mode();
+                let size = meta.len();
+                println!("-{:o} {:>8} {}", mode & 0o777, size, path);
+            } else {
+                println!("{}", path);
+            }
+        }
+        return;
+    }
+
+    // Handle symlink pointing to file
+    if p.is_symlink() {
+        if let Ok(target) = fs::read_link(p) {
+            if show_long {
+                println!("l          {} -> {}", path, target.display());
+            } else {
+                println!("{}", path);
+            }
+        }
+        return;
+    }
+
+    // Handle directory
     match fs::read_dir(path) {
         Ok(entries) => {
             for entry in entries {
@@ -22,7 +72,6 @@ fn main() {
                     let name = entry.file_name();
                     let name_str = name.to_string_lossy();
 
-                    // Skip hidden files unless -a
                     if !show_all && name_str.starts_with('.') {
                         continue;
                     }
@@ -47,7 +96,6 @@ fn main() {
         }
         Err(e) => {
             eprintln!("ls: cannot access '{}': {}", path, e);
-            std::process::exit(1);
         }
     }
 }

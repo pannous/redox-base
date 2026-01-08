@@ -24,16 +24,43 @@ impl Display {
 
     /// Re-open the display after a handoff.
     pub fn reopen_for_handoff(&mut self) {
-        let display_file = self.input_handle.open_display_v2().unwrap();
-        let new_display_handle = V2GraphicsHandle::from_file(display_file).unwrap();
+        let display_file = match self.input_handle.open_display_v2() {
+            Ok(f) => f,
+            Err(err) => {
+                eprintln!("fbcond: failed to open display v2: {}", err);
+                return;
+            }
+        };
+        let new_display_handle = match V2GraphicsHandle::from_file(display_file) {
+            Ok(h) => h,
+            Err(err) => {
+                eprintln!("fbcond: failed to create graphics handle: {}", err);
+                return;
+            }
+        };
 
         log::debug!("fbcond: Opened new display");
 
-        let (width, height) = new_display_handle
-            .get_connector(new_display_handle.first_display().unwrap(), true)
-            .unwrap()
-            .modes()[0]
-            .size();
+        let first_display = match new_display_handle.first_display() {
+            Ok(d) => d,
+            Err(err) => {
+                eprintln!("fbcond: failed to get first display: {}", err);
+                return;
+            }
+        };
+        let connector = match new_display_handle.get_connector(first_display, true) {
+            Ok(c) => c,
+            Err(err) => {
+                eprintln!("fbcond: failed to get connector: {}", err);
+                return;
+            }
+        };
+        let modes = connector.modes();
+        if modes.is_empty() {
+            eprintln!("fbcond: no display modes available");
+            return;
+        }
+        let (width, height) = modes[0].size();
 
         match V2DisplayMap::new(new_display_handle, width.into(), height.into()) {
             Ok(map) => {

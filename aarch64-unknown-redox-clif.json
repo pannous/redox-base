@@ -15,12 +15,8 @@
     "os": "redox",
     "panic-strategy": "abort",
     "position-independent-executables": false,
-    "pre-link-objects": {
-        "static-nopic-exe": ["crt0.o", "crti.o"]
-    },
-    "post-link-objects": {
-        "static-nopic-exe": ["crtn.o"]
-    },
+    "pre-link-objects": {},
+    "post-link-objects": {},
     "relro-level": "full",
     "target-family": ["unix"],
     "target-pointer-width": 64

@@ -118,12 +118,14 @@ fn main() -> Result<()> {
         let mut command = Command::new(program);
         command.args(args);
 
-        log::info!("pcid-spawner: spawn {:?}", command);
+        log::debug!("pcid-spawner: spawn {:?}", command);
 
         handle.enable_device();
 
         let channel_fd = handle.into_inner_fd();
         command.env("PCID_CLIENT_CHANNEL", channel_fd.to_string());
+        // Suppress INFO/DEBUG logging for drivers (change to "info" or "debug" for verbose)
+        command.env("RUST_LOG", "warn");
 
         match command.status() {
             Ok(status) if !status.success() => {

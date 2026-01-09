@@ -4,7 +4,7 @@ use alloc::borrow::ToOwned;
 use alloc::vec::Vec;
 
 use syscall::flag::{O_CLOEXEC, O_RDONLY};
-use syscall::{EINTR, Error};
+use syscall::{Error, EINTR};
 
 use redox_rt::proc::*;
 
@@ -62,7 +62,7 @@ pub fn main() -> ! {
 
     if let Some(log_env) = envs
         .iter()
-        .find_map(|var| var.strip_prefix(b"BOOT_LOG_LEVEL="))
+        .find_map(|var| var.strip_prefix(b"BOOTSTRAP_LOG_LEVEL="))
     {
         if let Ok(Ok(log_level)) = str::from_utf8(&log_env).map(|s| log::LevelFilter::from_str(s)) {
             log::set_max_level(log_level);

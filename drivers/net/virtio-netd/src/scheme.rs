@@ -23,15 +23,20 @@ pub struct VirtioNet<'a> {
 }
 
 impl<'a> VirtioNet<'a> {
-    pub fn new(mac_address: [u8; 6], rx: Arc<Queue<'a>>, tx: Arc<Queue<'a>>) -> Self {
+    pub fn new(mac_address: [u8; 6], rx: Arc<Queue<'a>>, tx: Arc<Queue<'a>>) -> Result<Self, syscall::Error> {
         // Populate all of the `rx_queue` with buffers to maximize performence.
         let mut rx_buffers = vec![];
         for i in 0..(rx.descriptor_len() as usize) {
-            rx_buffers.push(unsafe {
-                Dma::<[u8]>::zeroed_slice(MAX_BUFFER_LEN)
-                    .unwrap()
-                    .assume_init()
-            });
+            let dma_buf = unsafe {
+                match Dma::<[u8]>::zeroed_slice(MAX_BUFFER_LEN) {
+                    Ok(buf) => buf.assume_init(),
+                    Err(e) => {
+                        log::error!("virtio-netd: failed to allocate RX buffer {}: {:?}", i, e);
+                        return Err(e.into());
+                    }
+                }
+            };
+            rx_buffers.push(dma_buf);
 
             let chain = ChainBuilder::new()
                 .chain(Buffer::new_unsized(&rx_buffers[i]).flags(DescriptorFlags::WRITE_ONLY))
@@ -40,7 +45,7 @@ impl<'a> VirtioNet<'a> {
             let _ = rx.send(chain);
         }
 
-        Self {
+        Ok(Self {
             mac_address,
 
             rx,
@@ -48,7 +53,7 @@ impl<'a> VirtioNet<'a> {
             tx,
 
             recv_head: 0,
-        }
+        })
     }
 
     /// Returns the number of bytes read. Returns `0` if the operation would block.

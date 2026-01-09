@@ -31,7 +31,10 @@ fn main() {
 }
 
 fn daemon_runner(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
-    deamon(daemon, pcid_handle).unwrap();
+    if let Err(e) = deamon(daemon, pcid_handle) {
+        log::error!("virtio-netd: daemon failed: {}", e);
+        std::process::exit(1);
+    }
     unreachable!();
 }
 
@@ -52,7 +55,12 @@ fn deamon(
     // 0x1000 - virtio-net
     let pci_config = pcid_handle.config();
 
-    assert_eq!(pci_config.func.full_device_id.device_id, 0x1000);
+    if pci_config.func.full_device_id.device_id != 0x1000 {
+        return Err(format!(
+            "virtio-netd: unexpected device ID 0x{:04X}, expected 0x1000",
+            pci_config.func.full_device_id.device_id
+        ).into());
+    }
     log::info!("virtio-net: initiating startup sequence :^)");
 
     let device = virtio_core::probe_device(&mut pcid_handle)?;
@@ -84,7 +92,8 @@ fn deamon(
         device.transport.ack_driver_feature(VIRTIO_NET_F_MAC);
         mac
     } else {
-        unimplemented!()
+        log::warn!("virtio-net: device does not support MAC feature, using default");
+        [0x52, 0x54, 0x00, 0x12, 0x34, 0x56] // Default QEMU MAC
     };
 
     device.transport.finalize_features();
@@ -109,7 +118,13 @@ fn deamon(
     let mut name = pci_config.func.name();
     name.push_str("_virtio_net");
 
-    let device = VirtioNet::new(mac_address, rx_queue, tx_queue);
+    let device = match VirtioNet::new(mac_address, rx_queue, tx_queue) {
+        Ok(dev) => dev,
+        Err(e) => {
+            log::error!("virtio-netd: failed to initialize device: {:?}", e);
+            return Err(format!("device init failed: {:?}", e).into());
+        }
+    };
     let mut scheme = NetworkScheme::new(
         move || {
             //TODO: do device init in this function to prevent hangs
@@ -126,7 +141,9 @@ fn deamon(
         data: 0,
     })?;
 
-    libredox::call::setrens(0, 0).expect("virtio-netd: failed to enter null namespace");
+    if let Err(e) = libredox::call::setrens(0, 0) {
+        log::warn!("virtio-netd: failed to enter null namespace: {:?}", e);
+    }
 
     scheme.tick()?;
 

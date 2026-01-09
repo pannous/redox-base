@@ -57,6 +57,18 @@ fn getcfg(key: &str) -> Result<String> {
     Ok(value.trim().to_string())
 }
 
+fn subnet_to_prefix(subnet: &str) -> u8 {
+    let octets: Vec<u8> = subnet.split('.').filter_map(|s| s.parse().ok()).collect();
+    if octets.len() != 4 {
+        return 24;
+    }
+    let mask: u32 = ((octets[0] as u32) << 24)
+        | ((octets[1] as u32) << 16)
+        | ((octets[2] as u32) << 8)
+        | (octets[3] as u32);
+    mask.count_ones() as u8
+}
+
 pub struct Smolnetd {
     router_device: Tracer<Router>,
     iface: Interface,
@@ -127,9 +139,39 @@ impl Smolnetd {
             File::from_raw_fd(network_file.into_raw() as RawFd)
         });
         eth0.set_mac_address(hardware_addr);
+        let eth0_name = Rc::clone(eth0.name());
 
         devices.borrow_mut().push(loopback);
         devices.borrow_mut().push(eth0);
+
+        // Configure eth0 IP address from /etc/net/ip and /etc/net/ip_subnet
+        if let (Ok(ip_str), Ok(subnet_str)) = (getcfg("ip"), getcfg("ip_subnet")) {
+            if let Ok(ip) = Ipv4Address::from_str(&ip_str) {
+                if !ip.is_unspecified() {
+                    let prefix = subnet_to_prefix(&subnet_str);
+                    let cidr = IpCidr::new(IpAddress::Ipv4(ip), prefix);
+
+                    // Set IP on eth0 device
+                    if let Some(eth0_dev) = devices.borrow_mut().get_mut("eth0") {
+                        eth0_dev.set_ip_address(cidr);
+                    }
+
+                    // Add IP to interface (insert at 0 for UDP source selection)
+                    iface.borrow_mut().update_ip_addrs(|addrs| {
+                        let _ = addrs.insert(0, cidr);
+                    });
+
+                    // Add route for local network
+                    let network_cidr = IpCidr::Ipv4(smoltcp::wire::Ipv4Cidr::new(ip, prefix).network());
+                    route_table.borrow_mut().insert_rule(Rule::new(
+                        network_cidr,
+                        None,
+                        eth0_name,
+                        cidr.address(),
+                    ));
+                }
+            }
+        }
 
         Smolnetd {
             iface: Rc::clone(&iface),

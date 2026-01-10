@@ -160,7 +160,7 @@ fn run(daemon: daemon::Daemon) -> Result<()> {
 
     let all = {
         use EventSource::*;
-        [Network, Time, IpScheme, UdpScheme, IcmpScheme, NetcfgScheme].map(Ok)
+        [Network, Time, IpScheme, UdpScheme, TcpScheme, IcmpScheme, NetcfgScheme].map(Ok)
     };
 
     for event_res in all

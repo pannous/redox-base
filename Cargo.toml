@@ -9,7 +9,7 @@ members = [
     "initfs/tools",
     "ipcd",
     "logd",
-    # "netstack",  # TODO: missing Cargo.toml
+    "netstack",
     "ptyd",
     "ramfs",
     "randd",

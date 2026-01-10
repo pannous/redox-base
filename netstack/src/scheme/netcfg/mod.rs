@@ -243,7 +243,11 @@ fn mk_root_node(
                                     // ip address when sending UDP packets.
                                     // This behavior will have to be fixed as it's our route table
                                     // job to find give this source.
-                                    iface.borrow_mut().update_ip_addrs(|addrs| addrs.insert(0, cidr).unwrap());
+                                    iface.borrow_mut().update_ip_addrs(|addrs| {
+                                        // First remove if it already exists to avoid duplicate error
+                                        addrs.retain(|addr| *addr != cidr);
+                                        let _ = addrs.insert(0, cidr);
+                                    });
 
                                     let IpCidr::Ipv4(v4_cidr) = cidr;
                                     let network_cidr = IpCidr::Ipv4(v4_cidr.network());

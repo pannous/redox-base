@@ -166,6 +166,14 @@ impl Smolnetd {
                     route_table.borrow_mut().insert_rule(Rule::new(
                         network_cidr,
                         None,
+                        eth0_name.clone(),
+                        cidr.address(),
+                    ));
+
+                    // Add default route via gateway for external traffic.
+                    route_table.borrow_mut().insert_rule(Rule::new(
+                        IpCidr::new(IpAddress::v4(0, 0, 0, 0), 0),
+                        Some(IpAddress::Ipv4(default_gw)),
                         eth0_name,
                         cidr.address(),
                     ));
@@ -213,31 +221,36 @@ impl Smolnetd {
     }
 
     pub fn on_network_scheme_event(&mut self) -> Result<()> {
-        self.poll()?;
+        let timeout = self.poll()?;
+        self.schedule_time_event(timeout)?;
         Ok(())
     }
 
     pub fn on_ip_scheme_event(&mut self) -> Result<()> {
         self.ip_scheme.on_scheme_event()?;
-        let _ = self.poll()?;
+        let timeout = self.poll()?;
+        self.schedule_time_event(timeout)?;
         Ok(())
     }
 
     pub fn on_udp_scheme_event(&mut self) -> Result<()> {
         self.udp_scheme.on_scheme_event()?;
-        let _ = self.poll()?;
+        let timeout = self.poll()?;
+        self.schedule_time_event(timeout)?;
         Ok(())
     }
 
     pub fn on_tcp_scheme_event(&mut self) -> Result<()> {
         self.tcp_scheme.on_scheme_event()?;
-        let _ = self.poll()?;
+        let timeout = self.poll()?;
+        self.schedule_time_event(timeout)?;
         Ok(())
     }
 
     pub fn on_icmp_scheme_event(&mut self) -> Result<()> {
         self.icmp_scheme.on_scheme_event()?;
-        let _ = self.poll()?;
+        let timeout = self.poll()?;
+        self.schedule_time_event(timeout)?;
         Ok(())
     }
 
@@ -272,6 +285,8 @@ impl Smolnetd {
     }
 
     fn poll(&mut self) -> Result<Duration> {
+        // Keep smoltcp time advancing so TCP timers and timeouts work.
+        self.timer = ::std::time::Instant::now();
         let timeout = {
             let mut iter_limit = 10usize;
             let mut iface = self.iface.borrow_mut();

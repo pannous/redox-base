@@ -9,7 +9,7 @@ members = [
     "initfs/tools",
     "ipcd",
     "logd",
-    "netstack",
+    # "netstack",  # TODO: missing Cargo.toml
     "ptyd",
     "ramfs",
     "randd",
@@ -93,3 +93,9 @@ redox-scheme = { path = "redox-scheme" }
 [patch."https://gitlab.redox-os.org/redox-os/relibc.git"]
 #redox-rt = { path = "../../relibc/source/redox-rt" }
 #redox-ioctl = { path = "../../relibc/source/redox-ioctl" }
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+incremental = true

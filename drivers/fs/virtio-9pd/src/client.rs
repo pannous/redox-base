@@ -11,7 +11,7 @@ use virtio_core::transport::Queue;
 
 use crate::protocol::*;
 
-const MSIZE: u32 = 8192; // Maximum message size
+const MSIZE: u32 = 131072; // Maximum message size (128KB for good 9p performance)
 
 /// Simple spin-polling for futures without an async runtime
 fn spin_poll<F: std::future::Future>(mut future: F) -> F::Output {

@@ -76,6 +76,11 @@ pub trait Disk {
     // FIXME maybe only operate on a single block worth of data?
     async fn read(&mut self, block: u64, buffer: &mut [u8]) -> syscall::Result<usize>;
     async fn write(&mut self, block: u64, buffer: &[u8]) -> syscall::Result<usize>;
+
+    /// Flush all pending writes to stable storage
+    async fn flush(&mut self) -> syscall::Result<()> {
+        Ok(()) // Default no-op for backwards compatibility
+    }
 }
 
 impl<T: Disk + ?Sized> Disk for Box<T> {
@@ -93,6 +98,10 @@ impl<T: Disk + ?Sized> Disk for Box<T> {
 
     async fn write(&mut self, block: u64, buffer: &[u8]) -> syscall::Result<usize> {
         (**self).write(block, buffer).await
+    }
+
+    async fn flush(&mut self) -> syscall::Result<()> {
+        (**self).flush().await
     }
 }
 
@@ -251,6 +260,10 @@ impl<T: Disk> DiskWrapper<T> {
         } else {
             self.disk.write(block, buf).await
         }
+    }
+
+    pub async fn flush(&mut self) -> syscall::Result<()> {
+        self.disk.flush().await
     }
 }
 
@@ -645,6 +658,20 @@ impl<T: Disk> SchemeAsync for DiskScheme<T> {
                 part.size * u64::from(disk.block_size())
             }
         })
+    }
+
+    async fn fsync(&mut self, id: usize, _ctx: &CallerCtx) -> Result<()> {
+        match *self.handles.get(&id).ok_or(Error::new(EBADF))? {
+            Handle::List(_) => Ok(()),
+            Handle::Disk(number) => {
+                let disk = self.disks.get_mut(&number).ok_or(Error::new(EBADF))?;
+                disk.flush().await
+            }
+            Handle::Partition(disk_num, _part_num) => {
+                let disk = self.disks.get_mut(&disk_num).ok_or(Error::new(EBADF))?;
+                disk.flush().await
+            }
+        }
     }
 }
 

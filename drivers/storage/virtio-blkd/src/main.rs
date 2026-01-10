@@ -85,6 +85,7 @@ impl BlockDeviceConfig {
 pub enum BlockRequestTy {
     In = 0,
     Out = 1,
+    Flush = 4,
 }
 
 const_assert_eq!(core::mem::size_of::<BlockRequestTy>(), 4);

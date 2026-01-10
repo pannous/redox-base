@@ -11,6 +11,7 @@ use crate::BlockVirtRequest;
 trait BlkExtension {
     async fn read(&self, block: u64, target: &mut [u8]) -> usize;
     async fn write(&self, block: u64, target: &[u8]) -> usize;
+    async fn flush(&self);
 }
 
 impl BlkExtension for Queue<'_> {
@@ -71,6 +72,25 @@ impl BlkExtension for Queue<'_> {
 
         target.len()
     }
+
+    async fn flush(&self) {
+        let req = Dma::new(BlockVirtRequest {
+            ty: BlockRequestTy::Flush,
+            reserved: 0,
+            sector: 0,
+        })
+        .unwrap();
+
+        let status = Dma::new(u8::MAX).unwrap();
+
+        let chain = ChainBuilder::new()
+            .chain(Buffer::new(&req))
+            .chain(Buffer::new(&status).flags(DescriptorFlags::WRITE_ONLY))
+            .build();
+
+        self.send(chain).await;
+        assert_eq!(*status, 0);
+    }
 }
 
 pub(crate) struct VirtioDisk<'a> {
@@ -99,5 +119,10 @@ impl driver_block::Disk for VirtioDisk<'_> {
 
     async fn write(&mut self, block: u64, buffer: &[u8]) -> syscall::Result<usize> {
         Ok(self.queue.write(block, buffer).await)
+    }
+
+    async fn flush(&mut self) -> syscall::Result<()> {
+        self.queue.flush().await;
+        Ok(())
     }
 }

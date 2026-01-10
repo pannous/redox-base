@@ -1,0 +1,19 @@
+[workspace]
+
+[package]
+name = "curl"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "curl"
+path = "src/main.rs"
+
+[dependencies]
+# Use ureq for simple HTTP - no async, no TLS by default
+ureq = { version = "2", default-features = false }
+
+[profile.release]
+opt-level = "s"
+lto = false
+panic = "abort"

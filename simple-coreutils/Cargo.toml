@@ -27,4 +27,52 @@ path = "src/cp.rs"
 name = "simple-touch"
 path = "src/touch.rs"
 
+[[bin]]
+name = "simple-sync"
+path = "src/sync.rs"
+
+[[bin]]
+name = "sleep"
+path = "src/sleep.rs"
+
+[[bin]]
+name = "chmod"
+path = "src/chmod.rs"
+
+[[bin]]
+name = "ln"
+path = "src/ln.rs"
+
+[[bin]]
+name = "head"
+path = "src/head.rs"
+
+[[bin]]
+name = "tail"
+path = "src/tail.rs"
+
+[[bin]]
+name = "wc"
+path = "src/wc.rs"
+
+[[bin]]
+name = "pwd"
+path = "src/pwd.rs"
+
+[[bin]]
+name = "true"
+path = "src/true.rs"
+
+[[bin]]
+name = "false"
+path = "src/false.rs"
+
+[[bin]]
+name = "more"
+path = "src/more.rs"
+
+[[bin]]
+name = "less"
+path = "src/less.rs"
+
 [dependencies]

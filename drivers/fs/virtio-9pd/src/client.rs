@@ -321,6 +321,45 @@ impl<'a> Client9p<'a> {
         FileAttr::decode(&mut parser).ok_or_else(|| anyhow!("invalid attr"))
     }
 
+    /// Set file attributes
+    pub fn setattr(
+        &self,
+        fid: u32,
+        valid: u32,
+        mode: u32,
+        uid: u32,
+        gid: u32,
+        size: u64,
+        atime_sec: u64,
+        atime_nsec: u64,
+        mtime_sec: u64,
+        mtime_nsec: u64,
+    ) -> Result<()> {
+        let tag = self.next_tag();
+        let msg = MessageBuilder::new(MsgType::Tsetattr, tag)
+            .put_u32(fid)
+            .put_u32(valid)
+            .put_u32(mode)
+            .put_u32(uid)
+            .put_u32(gid)
+            .put_u64(size)
+            .put_u64(atime_sec)
+            .put_u64(atime_nsec)
+            .put_u64(mtime_sec)
+            .put_u64(mtime_nsec)
+            .finish();
+
+        let resp = self.transact(msg)?;
+        let mut parser = MessageParser::new(&resp);
+        let header = parser.get_header().ok_or_else(|| anyhow!("no header"))?;
+
+        if header.typ != MsgType::Rsetattr as u8 {
+            return Err(anyhow!("setattr failed: type={}", header.typ));
+        }
+
+        Ok(())
+    }
+
     /// Read directory entries
     pub fn readdir(&self, fid: u32, offset: u64, count: u32) -> Result<Vec<DirEntry>> {
         let tag = self.next_tag();
@@ -444,6 +483,27 @@ impl<'a> Client9p<'a> {
 
         if header.typ != MsgType::Rfsync as u8 {
             return Err(anyhow!("fsync failed: type={}", header.typ));
+        }
+
+        Ok(())
+    }
+
+    /// Rename a file (renameat)
+    pub fn renameat(&self, olddirfid: u32, oldname: &str, newdirfid: u32, newname: &str) -> Result<()> {
+        let tag = self.next_tag();
+        let msg = MessageBuilder::new(MsgType::Trenameat, tag)
+            .put_u32(olddirfid)
+            .put_str(oldname)
+            .put_u32(newdirfid)
+            .put_str(newname)
+            .finish();
+
+        let resp = self.transact(msg)?;
+        let mut parser = MessageParser::new(&resp);
+        let header = parser.get_header().ok_or_else(|| anyhow!("no header"))?;
+
+        if header.typ != MsgType::Rrenameat as u8 {
+            return Err(anyhow!("renameat failed: type={}", header.typ));
         }
 
         Ok(())

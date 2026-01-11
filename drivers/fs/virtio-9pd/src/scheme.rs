@@ -12,7 +12,7 @@ use redox_scheme::scheme::SchemeSync;
 use redox_scheme::{CallerCtx, OpenResult};
 
 use crate::client::Client9p;
-use crate::protocol::{self, FileAttr, P9_GETATTR_BASIC, Qid};
+use crate::protocol::{self, FileAttr, P9_GETATTR_BASIC, P9_SETATTR_MODE, P9_SETATTR_UID, P9_SETATTR_GID, P9_SETATTR_SIZE, P9_SETATTR_ATIME_SET, P9_SETATTR_MTIME_SET, Qid};
 
 /// State for an open file handle
 struct Handle {
@@ -389,28 +389,117 @@ impl SchemeSync for Scheme9p<'_> {
         Err(Error::new(ENOSYS))
     }
 
-    fn fchmod(&mut self, _id: usize, _mode: u16, _ctx: &CallerCtx) -> Result<()> {
-        // TODO: implement setattr
-        Ok(())
+    fn fchmod(&mut self, id: usize, mode: u16, _ctx: &CallerCtx) -> Result<()> {
+        let handle = self.handles.get(&id).ok_or(Error::new(EBADFD))?;
+        self.client
+            .setattr(handle.fid, P9_SETATTR_MODE, mode as u32, 0, 0, 0, 0, 0, 0, 0)
+            .map_err(|e| {
+                log::debug!("setattr (chmod) failed: {}", e);
+                Error::new(EIO)
+            })
     }
 
-    fn fchown(&mut self, _id: usize, _uid: u32, _gid: u32, _ctx: &CallerCtx) -> Result<()> {
-        // TODO: implement setattr
-        Ok(())
+    fn fchown(&mut self, id: usize, uid: u32, gid: u32, _ctx: &CallerCtx) -> Result<()> {
+        let handle = self.handles.get(&id).ok_or(Error::new(EBADFD))?;
+        let valid = P9_SETATTR_UID | P9_SETATTR_GID;
+        self.client
+            .setattr(handle.fid, valid, 0, uid, gid, 0, 0, 0, 0, 0)
+            .map_err(|e| {
+                log::debug!("setattr (chown) failed: {}", e);
+                Error::new(EIO)
+            })
     }
 
-    fn ftruncate(&mut self, _id: usize, _len: u64, _ctx: &CallerCtx) -> Result<()> {
-        // TODO: implement setattr
-        Err(Error::new(ENOSYS))
+    fn ftruncate(&mut self, id: usize, len: u64, _ctx: &CallerCtx) -> Result<()> {
+        let handle = self.handles.get(&id).ok_or(Error::new(EBADFD))?;
+        self.client
+            .setattr(handle.fid, P9_SETATTR_SIZE, 0, 0, 0, len, 0, 0, 0, 0)
+            .map_err(|e| {
+                log::debug!("setattr (truncate) failed: {}", e);
+                Error::new(EIO)
+            })
     }
 
-    fn futimens(&mut self, _id: usize, _times: &[TimeSpec], _ctx: &CallerCtx) -> Result<()> {
-        // TODO: implement setattr
-        Ok(())
+    fn futimens(&mut self, id: usize, times: &[TimeSpec], _ctx: &CallerCtx) -> Result<()> {
+        let handle = self.handles.get(&id).ok_or(Error::new(EBADFD))?;
+
+        let (atime_sec, atime_nsec, mtime_sec, mtime_nsec, valid) = if times.len() >= 2 {
+            (
+                times[0].tv_sec as u64,
+                times[0].tv_nsec as u64,
+                times[1].tv_sec as u64,
+                times[1].tv_nsec as u64,
+                P9_SETATTR_ATIME_SET | P9_SETATTR_MTIME_SET,
+            )
+        } else {
+            (0, 0, 0, 0, 0)
+        };
+
+        if valid == 0 {
+            return Ok(());
+        }
+
+        self.client
+            .setattr(handle.fid, valid, 0, 0, 0, 0, atime_sec, atime_nsec, mtime_sec, mtime_nsec)
+            .map_err(|e| {
+                log::debug!("setattr (utimens) failed: {}", e);
+                Error::new(EIO)
+            })
     }
 
-    fn frename(&mut self, _id: usize, _path: &str, _ctx: &CallerCtx) -> Result<usize> {
-        Err(Error::new(ENOSYS))
+    fn frename(&mut self, id: usize, new_path: &str, _ctx: &CallerCtx) -> Result<usize> {
+        let handle = self.handles.get(&id).ok_or(Error::new(EBADFD))?;
+        let old_path = handle.path.clone();
+
+        // Split old path into parent + name
+        let (old_parent, old_name) = match old_path.rfind('/') {
+            Some(i) => (&old_path[..i], &old_path[i + 1..]),
+            None => ("", old_path.as_str()),
+        };
+
+        // Split new path into parent + name
+        let (new_parent, new_name) = match new_path.rfind('/') {
+            Some(i) => (&new_path[..i], &new_path[i + 1..]),
+            None => ("", new_path),
+        };
+
+        // Walk to old parent directory
+        let old_dir_fid = self.client.alloc_fid();
+        let old_components: Vec<&str> = old_parent.split('/').filter(|s| !s.is_empty()).collect();
+        self.client
+            .walk(self.client.root_fid(), old_dir_fid, &old_components)
+            .map_err(|e| {
+                log::debug!("frename: walk to old parent failed: {}", e);
+                Error::new(ENOENT)
+            })?;
+
+        // Walk to new parent directory
+        let new_dir_fid = self.client.alloc_fid();
+        let new_components: Vec<&str> = new_parent.split('/').filter(|s| !s.is_empty()).collect();
+        if let Err(e) = self.client.walk(self.client.root_fid(), new_dir_fid, &new_components) {
+            let _ = self.client.clunk(old_dir_fid);
+            log::debug!("frename: walk to new parent failed: {}", e);
+            return Err(Error::new(ENOENT));
+        }
+
+        // Perform the rename
+        let result = self.client.renameat(old_dir_fid, old_name, new_dir_fid, new_name);
+
+        // Clean up directory fids
+        let _ = self.client.clunk(old_dir_fid);
+        let _ = self.client.clunk(new_dir_fid);
+
+        result.map_err(|e| {
+            log::debug!("frename failed: {}", e);
+            Error::new(EIO)
+        })?;
+
+        // Update handle path
+        if let Some(h) = self.handles.get_mut(&id) {
+            h.path = new_path.to_string();
+        }
+
+        Ok(0)
     }
 
     fn mmap_prep(

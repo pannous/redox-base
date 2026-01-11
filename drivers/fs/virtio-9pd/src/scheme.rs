@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use syscall::dirent::{DirEntry, DirentBuf, DirentKind};
-use syscall::error::{EBADF, EBADFD, EIO, EISDIR, ENOENT, ENOSYS, ENOTDIR};
-use syscall::flag::{O_ACCMODE, O_CREAT, O_DIRECTORY, O_RDONLY, O_RDWR, O_STAT, O_TRUNC, O_WRONLY};
+use syscall::error::{EBADF, EBADFD, EIO, EISDIR, ENOENT, ENOSYS, ENOTDIR, EXDEV};
+use syscall::flag::{O_ACCMODE, O_CREAT, O_DIRECTORY, O_RDONLY, O_RDWR, O_STAT, O_SYMLINK, O_TRUNC, O_WRONLY};
 use syscall::schemev2::NewFdFlags;
 use syscall::{Error, EventFlags, Result, Stat, StatVfs, TimeSpec};
 
@@ -12,7 +12,7 @@ use redox_scheme::scheme::SchemeSync;
 use redox_scheme::{CallerCtx, OpenResult};
 
 use crate::client::Client9p;
-use crate::protocol::{self, FileAttr, P9_GETATTR_BASIC, P9_SETATTR_MODE, P9_SETATTR_UID, P9_SETATTR_GID, P9_SETATTR_SIZE, P9_SETATTR_ATIME_SET, P9_SETATTR_MTIME_SET, Qid};
+use crate::protocol::{self, FileAttr, P9_GETATTR_BASIC, P9_SETATTR_MODE, P9_SETATTR_UID, P9_SETATTR_GID, P9_SETATTR_SIZE, P9_SETATTR_ATIME_SET, P9_SETATTR_MTIME_SET, Qid, QID_SYMLINK};
 
 /// State for an open file handle
 struct Handle {
@@ -184,6 +184,13 @@ impl SchemeSync for Scheme9p<'_> {
             Err(e) => return Err(e),
         };
 
+        // Check for symlink - return EXDEV if not opened with O_SYMLINK
+        let is_symlink = qid.typ & QID_SYMLINK != 0;
+        if is_symlink && flags & O_SYMLINK == 0 && flags & O_STAT == 0 {
+            let _ = self.client.clunk(fid);
+            return Err(Error::new(EXDEV));
+        }
+
         // Check directory flag consistency
         // Don't reject O_DIRECTORY on files - Redox coreutils use it for stat
         let is_dir = qid.is_dir();
@@ -192,8 +199,9 @@ impl SchemeSync for Scheme9p<'_> {
             return Err(Error::new(EISDIR));
         }
 
-        // Open the file (unless O_STAT or already opened by lcreate)
-        if flags & O_STAT == 0 && !already_opened {
+        // Open the file (unless O_STAT, symlink with O_SYMLINK, or already opened by lcreate)
+        // Symlinks opened with O_SYMLINK don't need lopen - we just read the target
+        if flags & O_STAT == 0 && !already_opened && !(is_symlink && flags & O_SYMLINK != 0) {
             // Use to_9p_lopen_flags which excludes O_CREAT (lopen doesn't create files)
             let p9_flags = self.to_9p_lopen_flags(flags);
             let _ = self.client.lopen(fid, p9_flags).map_err(|e| {
@@ -233,6 +241,24 @@ impl SchemeSync for Scheme9p<'_> {
 
         if handle.qid.is_dir() {
             return Err(Error::new(EISDIR));
+        }
+
+        // Handle symlink reads - return the link target
+        let is_symlink = handle.qid.typ & QID_SYMLINK != 0;
+        if is_symlink && handle.flags & O_SYMLINK != 0 {
+            let target = self.client.readlink(handle.fid).map_err(|e| {
+                log::debug!("readlink failed: {}", e);
+                Error::new(EIO)
+            })?;
+            let target_bytes = target.as_bytes();
+            let offset = offset as usize;
+            if offset >= target_bytes.len() {
+                return Ok(0);
+            }
+            let remaining = &target_bytes[offset..];
+            let len = remaining.len().min(buf.len());
+            buf[..len].copy_from_slice(&remaining[..len]);
+            return Ok(len);
         }
 
         if !matches!((fcntl_flags as usize) & O_ACCMODE, O_RDONLY | O_RDWR) {

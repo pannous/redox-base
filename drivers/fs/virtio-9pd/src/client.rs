@@ -488,6 +488,45 @@ impl<'a> Client9p<'a> {
         Ok(())
     }
 
+    /// Create a symlink
+    pub fn symlink(&self, dirfid: u32, name: &str, symtgt: &str, gid: u32) -> Result<Qid> {
+        let tag = self.next_tag();
+        let msg = MessageBuilder::new(MsgType::Tsymlink, tag)
+            .put_u32(dirfid)
+            .put_str(name)
+            .put_str(symtgt)
+            .put_u32(gid)
+            .finish();
+
+        let resp = self.transact(msg)?;
+        let mut parser = MessageParser::new(&resp);
+        let header = parser.get_header().ok_or_else(|| anyhow!("no header"))?;
+
+        if header.typ != MsgType::Rsymlink as u8 {
+            return Err(anyhow!("symlink failed: type={}", header.typ));
+        }
+
+        parser.get_qid().ok_or_else(|| anyhow!("no qid"))
+    }
+
+    /// Read symlink target
+    pub fn readlink(&self, fid: u32) -> Result<String> {
+        let tag = self.next_tag();
+        let msg = MessageBuilder::new(MsgType::Treadlink, tag)
+            .put_u32(fid)
+            .finish();
+
+        let resp = self.transact(msg)?;
+        let mut parser = MessageParser::new(&resp);
+        let header = parser.get_header().ok_or_else(|| anyhow!("no header"))?;
+
+        if header.typ != MsgType::Rreadlink as u8 {
+            return Err(anyhow!("readlink failed: type={}", header.typ));
+        }
+
+        parser.get_str().map(|s| s.to_string()).ok_or_else(|| anyhow!("no target"))
+    }
+
     /// Rename a file (renameat)
     pub fn renameat(&self, olddirfid: u32, oldname: &str, newdirfid: u32, newname: &str) -> Result<()> {
         let tag = self.next_tag();

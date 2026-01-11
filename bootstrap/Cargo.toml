@@ -36,3 +36,6 @@ panic = "abort"
 
 [patch.crates-io]
 redox-scheme = { path = "../redox-scheme" }
+
+[patch.'https://gitlab.redox-os.org/redox-os/relibc.git']
+redox-rt = { path = "/opt/other/redox/recipes/core/relibc/source/redox-rt" }

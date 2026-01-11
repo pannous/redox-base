@@ -192,7 +192,7 @@ fn main() {
         common::file_level(),
     );
 
-    log::info!(
+    log::debug!(
         "USB HID driver spawned with scheme `{}`, port {}, interface {}",
         scheme,
         port,
@@ -345,7 +345,7 @@ fn main() {
                         log::warn!("absolute mouse wheel not supported");
                     }
                 } else {
-                    log::info!(
+                    log::debug!(
                         "unsupported generic desktop usage 0x{:X}:0x{:X} value {}",
                         event.usage_page,
                         event.usage,
@@ -374,7 +374,7 @@ fn main() {
                 if event.usage > 0 && event.usage as usize <= buttons.len() {
                     buttons[event.usage as usize - 1] = event.value != 0;
                 } else {
-                    log::info!(
+                    log::debug!(
                         "unsupported buttons usage 0x{:X}:0x{:X} value {}",
                         event.usage_page,
                         event.usage,
@@ -384,7 +384,7 @@ fn main() {
             } else if event.usage_page >= 0xFF00 {
                 // Ignore vendor defined event
             } else {
-                log::info!(
+                log::debug!(
                     "unsupported usage 0x{:X}:0x{:X} value {}",
                     event.usage_page,
                     event.usage,

@@ -26,3 +26,7 @@ twox-hash = "1.6"
 
 archive-common = {path = "../archive-common"}
 redox-initfs = {path = ".."}
+
+[[bin]]
+name = "redox-initfs-extract"
+path = "src/bin/extract.rs"

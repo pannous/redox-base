@@ -143,11 +143,14 @@ impl<'a> Scheme9p<'a> {
 
 impl SchemeSync for Scheme9p<'_> {
     fn open(&mut self, path: &str, flags: usize, ctx: &CallerCtx) -> Result<OpenResult> {
-        log::trace!("open: path='{}' flags={:#x}", path, flags);
+        log::warn!("OPEN CALLED: path='{}' flags={:#x}", path, flags);
 
         // Walk to the path - track whether we created the file (lcreate opens it)
         let (fid, qid, already_opened) = match self.walk_path(path) {
-            Ok((fid, qid)) => (fid, qid, false),
+            Ok((fid, qid)) => {
+                log::warn!("walk_path OK: path='{}' qid.typ={:#x}", path, qid.typ);
+                (fid, qid, false)
+            }
             Err(e) if flags & O_CREAT != 0 => {
                 // File doesn't exist but O_CREAT is set - try to create it
                 // First walk to parent directory
@@ -181,11 +184,15 @@ impl SchemeSync for Scheme9p<'_> {
                 // lcreate repurposes parent_fid to point to new file AND opens it
                 (parent_fid, qid, true)
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                log::warn!("walk_path FAILED: path='{}' err={:?}", path, e);
+                return Err(e);
+            }
         };
 
         // Check for symlink - return EXDEV if not opened with O_SYMLINK
         let is_symlink = qid.typ & QID_SYMLINK != 0;
+        log::warn!("open: path='{}' qid.typ={:#x} is_symlink={} flags={:#x}", path, qid.typ, is_symlink, flags);
         if is_symlink && flags & O_SYMLINK == 0 && flags & O_STAT == 0 {
             let _ = self.client.clunk(fid);
             return Err(Error::new(EXDEV));

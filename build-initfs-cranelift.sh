@@ -18,14 +18,17 @@ BINS="$BINS acpid fbbootlogd fbcond hwd inputd lived nvmed pcid pcid-spawner rtc
 BINS="$BINS virtio-blkd virtio-gpud virtio-9pd"
 # Test binaries
 BINS="$BINS test-9p simple-ls"
+# Simple coreutils
+BINS="$BINS simple-coreutils"
 
 export DYLD_LIBRARY_PATH=~/.rustup/toolchains/${NIGHTLY}-aarch64-apple-darwin/lib
+export CARGO_INCREMENTAL=0
+export RUSTC_WRAPPER=""
 
 export RUSTFLAGS="-Zcodegen-backend=${CRANELIFT} \
   -Crelocation-model=static \
   -Clink-arg=-L${RELIBC} \
   -Clink-arg=${RELIBC}/crt0.o \
-  -Clink-arg=${RELIBC}/crt0_rust.o \
   -Clink-arg=${RELIBC}/crti.o \
   -Clink-arg=${RELIBC}/crtn.o \
   -Clink-arg=-lunwind_stubs \
@@ -50,6 +53,8 @@ for bin in init logd ramfs randd zerod pcid pcid-spawner acpid fbbootlogd fbcond
 done
 # Create 'ls' symlink/copy for convenience
 cp /tmp/initfs-cranelift/bin/simple-ls /tmp/initfs-cranelift/bin/ls
+# Copy sleep from simple-coreutils
+llvm-strip -o /tmp/initfs-cranelift/bin/sleep target/aarch64-unknown-redox-clif/release/sleep
 for bin in nvmed virtio-blkd virtio-gpud virtio-9pd; do
     llvm-strip -o /tmp/initfs-cranelift/lib/drivers/$bin target/aarch64-unknown-redox-clif/release/$bin
 done

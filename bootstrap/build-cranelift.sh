@@ -10,6 +10,7 @@ CRANELIFT="/opt/other/rustc_codegen_cranelift/dist/lib/librustc_codegen_cranelif
 
 echo "=== Building bootstrap with Cranelift ==="
 
+CARGO_INCREMENTAL=1 \
 DYLD_LIBRARY_PATH=~/.rustup/toolchains/${NIGHTLY}-aarch64-apple-darwin/lib \
 RUSTFLAGS="-Zcodegen-backend=${CRANELIFT}" \
 cargo +${NIGHTLY} build \

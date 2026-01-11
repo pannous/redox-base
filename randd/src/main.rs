@@ -39,28 +39,64 @@ const DEFAULT_PRNG_MODE: u16 = 0o644;
 // Rand crate recommends at least 256 bits of entropy to seed the RNG
 const SEED_BYTES: usize = 32;
 
-/// Create a true random seed for the RNG from the Intel x64 rdrand instruction if present.
-/// Will seed with a zero (insecure) if rdrand not present.
+/// Create a seed for the RNG from platform-specific entropy sources.
+/// x86_64: Uses RDRAND instruction if available
+/// aarch64: Uses timer jitter entropy from CNTVCT_EL0
 fn create_rdrand_seed() -> [u8; SEED_BYTES] {
-    let mut rng = [0; SEED_BYTES];
+    let mut rng = [0u8; SEED_BYTES];
     let mut have_seeded = false;
+
     #[cfg(target_arch = "x86_64")]
     {
         if CpuId::new().get_feature_info().unwrap().has_rdrand() {
             for i in 0..SEED_BYTES / 8 {
-                // We get 8 bytes at a time from rdrand instruction
                 let rand: u64;
                 unsafe {
                     asm!("rdrand rax", out("rax") rand);
                 }
-
                 rng[i * 8..(i * 8 + 8)].copy_from_slice(&rand.to_le_bytes());
             }
             have_seeded = true;
         }
-    } // TODO integrate alternative entropy sources
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        // Timer jitter entropy: sample virtual counter multiple times
+        // The low bits contain timing jitter from system activity
+        let mut digest = Sha256::new();
+
+        // Collect multiple timer samples with computation between them
+        for round in 0..64u64 {
+            let cnt: u64;
+            unsafe {
+                asm!("mrs {}, cntvct_el0", out(reg) cnt);
+            }
+            // Mix in counter value and round number
+            digest.input(&cnt.to_le_bytes());
+            digest.input(&round.to_le_bytes());
+
+            // Small busywork to introduce timing variation
+            for _ in 0..(cnt & 0xF) + 1 {
+                core::hint::black_box(cnt.wrapping_mul(0x5851F42D4C957F2D));
+            }
+        }
+
+        // Final timer sample after all the work
+        let final_cnt: u64;
+        unsafe {
+            asm!("mrs {}, cntvct_el0", out(reg) final_cnt);
+        }
+        digest.input(&final_cnt.to_le_bytes());
+
+        let hash = digest.result();
+        rng.copy_from_slice(hash.as_slice());
+        have_seeded = true;
+        println!("randd: Seeded from aarch64 timer jitter entropy");
+    }
+
     if !have_seeded {
-        println!("randd: Seeding failed, no entropy source.  Random numbers on this platform are NOT SECURE");
+        println!("randd: Seeding failed, no entropy source. Random numbers are NOT SECURE");
     }
     rng
 }

@@ -19,3 +19,9 @@ rustflags = [
     "-Clink-arg=muldefs",
     "-Cpanic=abort",
 ]
+
+[env]
+CARGO_INCREMENTAL="1"
+
+[net]
+offline = true

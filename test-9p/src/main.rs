@@ -38,6 +38,47 @@ fn main() {
         Err(e) => eprintln!("test-9p: failed to open: {}", e),
     }
 
+    // Test reading hello file (cat test)
+    let hello_path = "/scheme/9p.hostshare/hello";
+    eprintln!("test-9p: cat {}", hello_path);
+    match fs::File::open(hello_path) {
+        Ok(mut file) => {
+            let mut contents = String::new();
+            match file.read_to_string(&mut contents) {
+                Ok(n) => {
+                    eprintln!("test-9p: cat hello read {} bytes: {}", n, contents.trim());
+                    eprintln!("test-9p: CAT HELLO SUCCESS!");
+                }
+                Err(e) => eprintln!("test-9p: cat hello failed to read: {}", e),
+            }
+        }
+        Err(e) => eprintln!("test-9p: cat hello failed to open: {}", e),
+    }
+
+    // Test O_DIRECTORY on regular file (this is what cat/stat use)
+    // This was the original bug - ENOTDIR returned for regular files with O_DIRECTORY
+    eprintln!("test-9p: testing O_DIRECTORY flag on regular file");
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::fs::OpenOptions;
+    const O_DIRECTORY: i32 = 0x10000; // From Redox syscall flags
+    match OpenOptions::new()
+        .read(true)
+        .custom_flags(O_DIRECTORY)
+        .open(hello_path)
+    {
+        Ok(mut file) => {
+            let mut contents = String::new();
+            match file.read_to_string(&mut contents) {
+                Ok(n) => {
+                    eprintln!("test-9p: O_DIRECTORY read {} bytes: {}", n, contents.trim());
+                    eprintln!("test-9p: O_DIRECTORY TEST SUCCESS!");
+                }
+                Err(e) => eprintln!("test-9p: O_DIRECTORY read failed: {}", e),
+            }
+        }
+        Err(e) => eprintln!("test-9p: O_DIRECTORY open failed: {} (ENOTDIR = bug not fixed)", e),
+    }
+
     // Also try listing the 9p directory
     let dir = "/scheme/9p.hostshare/";
     eprintln!("test-9p: listing {}", dir);

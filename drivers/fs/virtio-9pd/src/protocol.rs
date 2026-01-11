@@ -117,6 +117,16 @@ pub const P9_GETATTR_GEN: u64 = 0x00001000;
 pub const P9_GETATTR_DATA_VERSION: u64 = 0x00002000;
 pub const P9_GETATTR_BASIC: u64 = 0x000007ff; // All except btime/gen/data_version
 
+// Setattr request mask bits
+pub const P9_SETATTR_MODE: u32 = 0x00000001;
+pub const P9_SETATTR_UID: u32 = 0x00000002;
+pub const P9_SETATTR_GID: u32 = 0x00000004;
+pub const P9_SETATTR_SIZE: u32 = 0x00000008;
+pub const P9_SETATTR_ATIME: u32 = 0x00000010;
+pub const P9_SETATTR_MTIME: u32 = 0x00000020;
+pub const P9_SETATTR_ATIME_SET: u32 = 0x00000080;
+pub const P9_SETATTR_MTIME_SET: u32 = 0x00000100;
+
 // Open flags (Linux compatible)
 pub const P9_RDONLY: u32 = 0;
 pub const P9_WRONLY: u32 = 1;

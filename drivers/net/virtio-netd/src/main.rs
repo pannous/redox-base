@@ -61,7 +61,7 @@ fn deamon(
             pci_config.func.full_device_id.device_id
         ).into());
     }
-    log::info!("virtio-net: initiating startup sequence :^)");
+    log::debug!("virtio-net: initiating startup sequence");
 
     let device = virtio_core::probe_device(&mut pcid_handle)?;
     let device_space = device.device_space;
@@ -79,7 +79,7 @@ fn deamon(
             ]
         };
 
-        log::info!(
+        log::debug!(
             "virtio-net: device MAC is {:>02X}:{:>02X}:{:>02X}:{:>02X}:{:>02X}:{:>02X}",
             mac[0],
             mac[1],

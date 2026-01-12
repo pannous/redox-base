@@ -105,6 +105,7 @@ fn deamon(
     // > packets, and outgoing packets are enqueued into another
     // > for transmission in that order.
     //
+	// TODO(andypython): Should we use the same IRQ vector for both?
     // Use setup_queue_no_irq to avoid spawning IRQ threads - we handle IRQs
     // in our main event loop instead for more responsive packet handling.
     let rx_queue = device
@@ -127,6 +128,7 @@ fn deamon(
             return Err(format!("device init failed: {:?}", e).into());
         }
     };
+	//TODO: do device init in this function to prevent hangs
     let mut scheme = NetworkScheme::new(
         move || dev,
         daemon,

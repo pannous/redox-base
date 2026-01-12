@@ -623,6 +623,7 @@ version = "0.1.0"
 dependencies = [
  "daemon",
  "libredox",
+ "log",
  "redox-scheme",
  "redox_syscall 0.6.0",
 ]
@@ -1778,7 +1779,7 @@ name = "redox-ioctl"
 version = "0.1.0"
 dependencies = [
  "drm-sys",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -1808,7 +1809,7 @@ dependencies = [
  "goblin",
  "plain",
  "redox-path",
- "redox_syscall 0.6.0",
+ "redox_syscall 0.7.0",
 ]
 
 [[package]]
@@ -1859,6 +1860,15 @@ name = "redox_syscall"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec96166dafa0886eb81fe1c0a388bece180fbef2135f97c1e2cf8302e74b43b5"
+dependencies = [
+ "bitflags 2.10.0",
+]
+
+[[package]]
+name = "redox_syscall"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49f3fe0889e69e2ae9e41f4d6c4c0181701d00e4697b356fb1f74173a5e0ee27"
 dependencies = [
  "bitflags 2.10.0",
 ]
@@ -2630,6 +2640,7 @@ dependencies = [
  "libredox",
  "log",
  "pcid",
+ "redox_event",
  "redox_syscall 0.6.0",
  "static_assertions",
  "virtio-core",

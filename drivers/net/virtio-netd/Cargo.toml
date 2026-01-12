@@ -14,5 +14,6 @@ common = { path = "../../common" }
 daemon = { path = "../../../daemon" }
 driver-network = { path = "../driver-network" }
 
+event = { package = "redox_event", version = "0.4.2" }
 redox_syscall = "0.6"
 libredox = "0.1.11"

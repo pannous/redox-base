@@ -1,10 +1,10 @@
 mod scheme;
 
-use std::fs::File;
 use std::io::{Read, Write};
-use std::mem;
+use std::os::unix::io::AsRawFd;
 
 use driver_network::NetworkScheme;
+use event::{user_data, EventFlags, UserData};
 use pcid_interface::PciFunctionHandle;
 
 use scheme::VirtioNet;
@@ -64,6 +64,7 @@ fn deamon(
     log::debug!("virtio-net: initiating startup sequence");
 
     let device = virtio_core::probe_device(&mut pcid_handle)?;
+    let mut irq_handle = device.irq_handle;
     let device_space = device.device_space;
 
     // Negotiate device features:
@@ -104,21 +105,22 @@ fn deamon(
     // > packets, and outgoing packets are enqueued into another
     // > for transmission in that order.
     //
-    // TODO(andypython): Should we use the same IRQ vector for both?
+    // Use setup_queue_no_irq to avoid spawning IRQ threads - we handle IRQs
+    // in our main event loop instead for more responsive packet handling.
     let rx_queue = device
         .transport
-        .setup_queue(virtio_core::MSIX_PRIMARY_VECTOR, &device.irq_handle)?;
+        .setup_queue_no_irq(virtio_core::MSIX_PRIMARY_VECTOR)?;
 
     let tx_queue = device
         .transport
-        .setup_queue(virtio_core::MSIX_PRIMARY_VECTOR, &device.irq_handle)?;
+        .setup_queue_no_irq(virtio_core::MSIX_PRIMARY_VECTOR)?;
 
     device.transport.run_device();
 
     let mut name = pci_config.func.name();
     name.push_str("_virtio_net");
 
-    let device = match VirtioNet::new(mac_address, rx_queue, tx_queue) {
+    let dev = match VirtioNet::new(mac_address, rx_queue, tx_queue) {
         Ok(dev) => dev,
         Err(e) => {
             log::error!("virtio-netd: failed to initialize device: {:?}", e);
@@ -126,20 +128,52 @@ fn deamon(
         }
     };
     let mut scheme = NetworkScheme::new(
-        move || {
-            //TODO: do device init in this function to prevent hangs
-            device
-        },
+        move || dev,
         daemon,
         format!("network.{name}"),
     );
 
-    let mut event_queue = File::open("/scheme/event")?;
-    event_queue.write(&syscall::Event {
-        id: scheme.event_handle().raw(),
-        flags: syscall::EVENT_READ,
-        data: 0,
-    })?;
+    user_data! {
+        enum Source {
+            Irq,
+            Scheme,
+        }
+    }
+
+    let irq_fd = irq_handle.as_raw_fd();
+    eprintln!("DEBUG: virtio-netd: IRQ fd = {}", irq_fd);
+
+    // Create event queue using raw API for timeout support
+    let queue_fd = unsafe { event::raw::redox_event_queue_create_v1(0) };
+    if queue_fd == !0 {
+        return Err("virtio-netd: failed to create event queue".into());
+    }
+
+    // Subscribe to IRQ events
+    let result = unsafe {
+        event::raw::redox_event_queue_ctl_v1(
+            queue_fd,
+            irq_fd as usize,
+            EventFlags::READ.bits(),
+            Source::Irq.into_user_data(),
+        )
+    };
+    if result == !0 {
+        return Err("virtio-netd: failed to subscribe to IRQ events".into());
+    }
+
+    // Subscribe to scheme events
+    let result = unsafe {
+        event::raw::redox_event_queue_ctl_v1(
+            queue_fd,
+            scheme.event_handle().raw(),
+            EventFlags::READ.bits(),
+            Source::Scheme.into_user_data(),
+        )
+    };
+    if result == !0 {
+        return Err("virtio-netd: failed to subscribe to scheme events".into());
+    }
 
     if let Err(e) = libredox::call::setrens(0, 0) {
         log::warn!("virtio-netd: failed to enter null namespace: {:?}", e);
@@ -147,8 +181,56 @@ fn deamon(
 
     scheme.tick()?;
 
+    eprintln!("DEBUG: virtio-netd: entering polling event loop");
+
+    let mut event_buf = [event::raw::RawEventV1::default()];
+    let mut poll_count: u64 = 0;
+
+    // Simple polling loop: check for events, then sleep briefly
     loop {
-        event_queue.read(&mut [0; mem::size_of::<syscall::Event>()])?; // Wait for event
+        // Non-blocking check for events
+        // We can't use timeout on event queue, so we poll in a tight loop
+        // with short sleeps between iterations
+
+        loop {
+            // Try to get an event (this might block if nothing is ready)
+            let count = unsafe {
+                event::raw::redox_event_queue_get_events_v1(
+                    queue_fd,
+                    event_buf.as_mut_ptr(),
+                    1,
+                    0,
+                    core::ptr::null(),
+                    core::ptr::null(),
+                )
+            };
+
+            if count == 0 || count == !0 {
+                // No event, break to poll the device
+                break;
+            }
+
+            let event = &event_buf[0];
+            let user_data = event.user_data;
+
+            if user_data == Source::Irq.into_user_data() {
+                eprintln!("DEBUG: virtio-netd: IRQ event");
+                let mut irq = [0u8; 8];
+                let _ = irq_handle.read(&mut irq);
+                let _ = irq_handle.write(&irq);
+            }
+            // For any event, tick the scheme
+            scheme.tick()?;
+        }
+
+        // Poll the device even without events (for packet reception)
+        poll_count += 1;
+        if poll_count % 1000 == 1 {
+            eprintln!("DEBUG: virtio-netd poll #{}", poll_count);
+        }
         scheme.tick()?;
+
+        // Yield to other threads instead of sleeping
+        std::thread::yield_now();
     }
 }

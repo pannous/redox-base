@@ -15,7 +15,7 @@ pub mod route_table;
 pub type PacketBuffer = smoltcp::storage::PacketBuffer<'static, ()>;
 
 pub struct Router {
-    rx_buffer: PacketBuffer,
+    pub rx_buffer: PacketBuffer,
     tx_buffer: PacketBuffer,
     devices: Rc<RefCell<DeviceList>>,
     route_table: Rc<RefCell<RouteTable>>,
@@ -64,6 +64,7 @@ impl Router {
                     break;
                 };
 
+                eprintln!("DEBUG: Router enqueue RX packet ({} bytes)", buf.len());
                 self.rx_buffer
                     .enqueue(buf.len(), ())
                     .expect("We checked if it was full")

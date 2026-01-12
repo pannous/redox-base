@@ -166,6 +166,14 @@ impl Smolnetd {
                     route_table.borrow_mut().insert_rule(Rule::new(
                         network_cidr,
                         None,
+                        eth0_name.clone(),
+                        cidr.address(),
+                    ));
+
+                    // Add default route via gateway
+                    route_table.borrow_mut().insert_rule(Rule::new(
+                        IpCidr::new(IpAddress::v4(0, 0, 0, 0), 0),
+                        Some(IpAddress::Ipv4(default_gw)),
                         eth0_name,
                         cidr.address(),
                     ));
@@ -213,6 +221,7 @@ impl Smolnetd {
     }
 
     pub fn on_network_scheme_event(&mut self) -> Result<()> {
+        eprintln!("smolnetd: on_network_scheme_event called");
         self.poll()?;
         Ok(())
     }
@@ -230,6 +239,7 @@ impl Smolnetd {
     }
 
     pub fn on_tcp_scheme_event(&mut self) -> Result<()> {
+        eprintln!("smolnetd: on_tcp_scheme_event");
         self.tcp_scheme.on_scheme_event()?;
         let _ = self.poll()?;
         Ok(())
@@ -242,6 +252,7 @@ impl Smolnetd {
     }
 
     pub fn on_time_event(&mut self) -> Result<()> {
+        eprintln!("smolnetd: on_time_event called");
         let timeout = self.poll()?;
         self.schedule_time_event(timeout)?;
         //TODO: Fix network scheme to ensure events are not missed
@@ -280,14 +291,21 @@ impl Smolnetd {
             loop {
                 let timestamp = Instant::from(self.timer);
                 if iter_limit == 0 {
+                    eprintln!("smolnetd: poll iter_limit exhausted");
                     break MIN_DURATION;
                 }
                 iter_limit -= 1;
 
                 self.router_device.get_mut().poll(timestamp);
 
-                // TODO: Check what if the bool returned by poll can be useful
+                let rx_empty_before = self.router_device.get_ref().rx_buffer.is_empty();
                 iface.poll(timestamp, &mut self.router_device, &mut socket_set);
+                let rx_empty_after = self.router_device.get_ref().rx_buffer.is_empty();
+
+                if !rx_empty_before && rx_empty_after {
+                    let now = libredox::call::clock_gettime(libredox::flag::CLOCK_MONOTONIC).ok();
+                    eprintln!("smolnetd: iface.poll() consumed packets @ {:?}", now);
+                }
 
                 self.router_device.get_mut().dispatch(timestamp);
 

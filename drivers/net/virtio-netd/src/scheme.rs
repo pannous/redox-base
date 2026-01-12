@@ -78,11 +78,17 @@ impl<'a> VirtioNet<'a> {
         let _header = unsafe { &*(buffer.as_ptr() as *const VirtHeader) };
         let packet = &buffer[header_size..(header_size + payload_size)];
 
-        // Copy the packet into the buffer.
-        target[..payload_size].copy_from_slice(&packet);
+        // Copy only as much as fits in the target buffer
+        let copy_size = core::cmp::min(payload_size, target.len());
+        target[..copy_size].copy_from_slice(&packet[..copy_size]);
 
         self.recv_head = self.rx.used.head_index();
-        payload_size
+
+        // Recycle the RX buffer back to the available ring for future packets
+        eprintln!("DEBUG: Recycling RX descriptor {} (recv_head now {})", descriptor_idx, self.recv_head);
+        self.rx.recycle_descriptor(descriptor_idx as u16);
+
+        copy_size
     }
 }
 
@@ -107,17 +113,32 @@ impl<'a> NetworkAdapter for VirtioNet<'a> {
     }
 
     fn write_packet(&mut self, buffer: &[u8]) -> syscall::Result<usize> {
-        let header = unsafe { Dma::<VirtHeader>::zeroed()?.assume_init() };
+        // Fire-and-forget TX: Use Box::leak to extend DMA buffer lifetimes.
+        // This leaks memory but avoids blocking. For production, implement descriptor recycling.
+        let header = match Dma::<VirtHeader>::zeroed() {
+            Ok(h) => Box::leak(Box::new(unsafe { h.assume_init() })),
+            Err(e) => {
+                log::error!("virtio-netd: DMA header alloc failed: {:?}", e);
+                return Err(e.into());
+            }
+        };
 
-        let mut payload = unsafe { Dma::<[u8]>::zeroed_slice(buffer.len())?.assume_init() };
+        let payload = match Dma::<[u8]>::zeroed_slice(buffer.len()) {
+            Ok(p) => Box::leak(Box::new(unsafe { p.assume_init() })),
+            Err(e) => {
+                log::error!("virtio-netd: DMA payload alloc failed: {:?}", e);
+                return Err(e.into());
+            }
+        };
         payload.copy_from_slice(buffer);
 
         let chain = ChainBuilder::new()
-            .chain(Buffer::new(&header))
-            .chain(Buffer::new_unsized(&payload))
+            .chain(Buffer::new(header))
+            .chain(Buffer::new_unsized(payload))
             .build();
 
-        futures::executor::block_on(self.tx.send(chain));
+        // Fire-and-forget: drop the completion future, don't block waiting for TX done
+        let _ = self.tx.send(chain);
         Ok(buffer.len())
     }
 }

@@ -6,5 +6,6 @@ edition = "2021"
 [dependencies]
 libredox = "0.1.11"
 daemon = { path = "../../../daemon" }
+log = "0.4"
 redox-scheme = "0.8.3"
 redox_syscall = { version = "0.6", features = ["std"] }

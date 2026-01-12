@@ -54,6 +54,9 @@ pub const fn queue_part_sizes(queue_size: usize) -> (usize, usize, usize) {
     )
 }
 
+/// Spawns an IRQ thread for a queue.
+///
+/// This is a simpler version without IRQ acknowledgment.
 pub fn spawn_irq_thread(irq_handle: &File, queue: &Arc<Queue<'static>>) {
     let irq_fd = irq_handle.as_raw_fd();
     let queue_copy = queue.clone();
@@ -65,7 +68,7 @@ pub fn spawn_irq_thread(irq_handle: &File, queue: &Arc<Queue<'static>>) {
             .subscribe(irq_fd as usize, 0, event::EventFlags::READ)
             .unwrap();
 
-        for event in event_queue.map(Result::unwrap) {
+        for _event in event_queue.map(Result::unwrap) {
             // Wake up the tasks waiting on the queue.
             for (_, task) in queue_copy.waker.lock().unwrap().iter() {
                 task.wake_by_ref();
@@ -235,6 +238,31 @@ impl<'a> Queue<'a> {
     /// Returns the number of descriptors in the descriptor table of this queue.
     pub fn descriptor_len(&self) -> usize {
         self.descriptor.len()
+    }
+
+    /// Recycle a descriptor back to the available ring without allocating new buffers.
+    /// Used for RX buffer recycling where the buffer is reused in place.
+    pub fn recycle_descriptor(&self, descriptor_idx: u16) {
+        let head = self.available.head_index();
+        let queue_size = self.available.queue_size;
+
+        eprintln!("DEBUG: recycle_descriptor({}) head={} queue_size={}", descriptor_idx, head, queue_size);
+
+        // Add descriptor to available ring
+        self.available
+            .get_element_at(head as usize % queue_size)
+            .table_index
+            .store(descriptor_idx, Ordering::SeqCst);
+
+        // Memory barrier before updating head
+        std::sync::atomic::fence(Ordering::SeqCst);
+
+        // Update head index
+        self.available.set_head_idx(head.wrapping_add(1));
+
+        // Notify device
+        self.notification_bell.ring(self.queue_index);
+        eprintln!("DEBUG: recycle_descriptor done, new head={}", self.available.head_index());
     }
 }
 
@@ -504,6 +532,10 @@ pub trait Transport: Sync + Send {
     /// This function panics if the device is running.
     fn setup_queue(&self, vector: u16, irq_handle: &File) -> Result<Arc<Queue<'_>>, Error>;
 
+    /// Sets up a queue without spawning an IRQ thread.
+    /// Use this when multiple queues share the same IRQ and you want to use spawn_shared_irq_thread.
+    fn setup_queue_no_irq(&self, vector: u16) -> Result<Arc<Queue<'_>>, Error>;
+
     // TODO(andypython): Should this function be unsafe?
     fn reinit_queue(&self, queue: Arc<Queue>);
     fn insert_status(&self, status: DeviceStatusFlags);
@@ -662,6 +694,56 @@ impl Transport for StandardTransport<'_> {
         );
 
         spawn_irq_thread(irq_handle, &queue);
+        Ok(queue)
+    }
+
+    fn setup_queue_no_irq(&self, vector: u16) -> Result<Arc<Queue<'_>>, Error> {
+        let mut common = self.common.lock().unwrap();
+
+        let queue_index = self.queue_index.fetch_add(1, Ordering::SeqCst);
+        common.queue_select.set(queue_index);
+
+        let queue_size = common.queue_size.get() as usize;
+        let queue_notify_idx = common.queue_notify_off.get();
+
+        // Allocate memory for the queue structures.
+        let descriptor = unsafe {
+            Dma::<[Descriptor]>::zeroed_slice(queue_size)
+                .map_err(Error::SyscallError)?
+                .assume_init()
+        };
+
+        let avail = Available::new(queue_size)?;
+        let used = Used::new(queue_size)?;
+
+        common.queue_desc.set(descriptor.physical() as u64);
+        common.queue_driver.set(avail.phys_addr() as u64);
+        common.queue_device.set(used.phys_addr() as u64);
+
+        // Set the MSI-X vector.
+        common.queue_msix_vector.set(vector);
+        assert!(common.queue_msix_vector.get() == vector);
+
+        // Enable the queue.
+        common.queue_enable.set(1);
+
+        let notification_bell = unsafe {
+            let offset = self.notify_mul * queue_notify_idx as u32;
+            &mut *(self.notify.add(offset as usize) as *mut AtomicU16)
+        };
+
+        log::debug!("virtio-core: enabled queue #{queue_index} (size={queue_size}) [no IRQ thread]");
+
+        let queue = Queue::new(
+            descriptor,
+            avail,
+            used,
+            StandardBell(notification_bell),
+            queue_index,
+            vector,
+        );
+
+        // Note: IRQ thread NOT spawned - caller should use spawn_shared_irq_thread
         Ok(queue)
     }
 

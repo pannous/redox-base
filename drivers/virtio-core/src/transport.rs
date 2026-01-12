@@ -236,6 +236,17 @@ impl<'a> Queue<'a> {
     pub fn descriptor_len(&self) -> usize {
         self.descriptor.len()
     }
+
+    /// Recycle a descriptor back into the available ring for reuse by the device.
+    /// Call this after processing a received buffer so the device can reuse it.
+    pub fn recycle_descriptor(&self, descriptor_idx: u16) {
+        // Re-add to available ring so device can use it for new RX.
+        // The descriptor table entry still has the original buffer address/size/flags.
+        let index = self.available.head_index() as usize;
+        self.available.get_element_at(index).set_table_index(descriptor_idx);
+        self.available.set_head_idx(index as u16 + 1);
+        self.notification_bell.ring(self.queue_index);
+    }
 }
 
 unsafe impl Sync for Queue<'_> {}
@@ -504,6 +515,10 @@ pub trait Transport: Sync + Send {
     /// This function panics if the device is running.
     fn setup_queue(&self, vector: u16, irq_handle: &File) -> Result<Arc<Queue<'_>>, Error>;
 
+    /// Creates a new queue without spawning an IRQ thread.
+    /// Use this when IRQ handling is done in the driver's main event loop.
+    fn setup_queue_no_irq(&self, vector: u16) -> Result<Arc<Queue<'_>>, Error>;
+
     // TODO(andypython): Should this function be unsafe?
     fn reinit_queue(&self, queue: Arc<Queue>);
     fn insert_status(&self, status: DeviceStatusFlags);
@@ -663,6 +678,50 @@ impl Transport for StandardTransport<'_> {
 
         spawn_irq_thread(irq_handle, &queue);
         Ok(queue)
+    }
+
+    fn setup_queue_no_irq(&self, vector: u16) -> Result<Arc<Queue<'_>>, Error> {
+        let mut common = self.common.lock().unwrap();
+
+        let queue_index = self.queue_index.fetch_add(1, Ordering::SeqCst);
+        common.queue_select.set(queue_index);
+
+        let queue_size = common.queue_size.get() as usize;
+        let queue_notify_idx = common.queue_notify_off.get();
+
+        let descriptor = unsafe {
+            Dma::<[Descriptor]>::zeroed_slice(queue_size)
+                .map_err(Error::SyscallError)?
+                .assume_init()
+        };
+
+        let avail = Available::new(queue_size)?;
+        let used = Used::new(queue_size)?;
+
+        common.queue_desc.set(descriptor.physical() as u64);
+        common.queue_driver.set(avail.phys_addr() as u64);
+        common.queue_device.set(used.phys_addr() as u64);
+
+        common.queue_msix_vector.set(vector);
+        assert!(common.queue_msix_vector.get() == vector);
+
+        common.queue_enable.set(1);
+
+        let notification_bell = unsafe {
+            let offset = self.notify_mul * queue_notify_idx as u32;
+            &mut *(self.notify.add(offset as usize) as *mut AtomicU16)
+        };
+
+        log::debug!("virtio-core: enabled queue #{queue_index} (size={queue_size}) [no IRQ thread]");
+
+        Ok(Queue::new(
+            descriptor,
+            avail,
+            used,
+            StandardBell(notification_bell),
+            queue_index,
+            vector,
+        ))
     }
 
     fn insert_status(&self, status: DeviceStatusFlags) {

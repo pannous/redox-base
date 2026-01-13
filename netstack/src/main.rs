@@ -166,10 +166,24 @@ fn run(daemon: daemon::Daemon) -> Result<()> {
         [Network, Time, IpScheme, UdpScheme, TcpScheme, IcmpScheme, NetcfgScheme].map(Ok)
     };
 
-    for event_res in all
-        .into_iter()
-        .chain(event_queue.map(|r| r.map(|e| e.user_data)))
-    {
+    eprintln!("smolnetd: processing initial events");
+    for (i, event_res) in all.into_iter().enumerate() {
+        eprintln!("smolnetd: initial event {}", i);
+        let event = event_res?;
+        match event {
+            EventSource::Network => smolnetd.on_network_scheme_event(),
+            EventSource::Time => smolnetd.on_time_event(),
+            EventSource::IpScheme => smolnetd.on_ip_scheme_event(),
+            EventSource::UdpScheme => smolnetd.on_udp_scheme_event(),
+            EventSource::TcpScheme => smolnetd.on_tcp_scheme_event(),
+            EventSource::IcmpScheme => smolnetd.on_icmp_scheme_event(),
+            EventSource::NetcfgScheme => smolnetd.on_netcfg_scheme_event(),
+        }
+        .map_err(|e| error!("Received packet error: {:?}", e));
+    }
+    eprintln!("smolnetd: initial events processed, entering polling loop");
+
+    for event_res in event_queue.map(|r| r.map(|e| e.user_data)) {
         let event = event_res?;
         match event {
             EventSource::Network => smolnetd.on_network_scheme_event(),

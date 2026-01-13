@@ -158,9 +158,9 @@ fn run(daemon: daemon::Daemon) -> Result<()> {
 
     // DISABLED: setrens(0,0) breaks event delivery - smolnetd would block forever
     // libredox::call::setrens(0, 0).context("smolnetd: failed to enter null namespace")?;
-    eprintln!("smolnetd: setrens DISABLED - staying in ENS=1");
+    debug!("setrens DISABLED - staying in ENS=1");
 
-    eprintln!("smolnetd: entering event loop");
+    debug!("entering event loop");
     let all: [std::result::Result<EventSource, std::io::Error>; 7] = {
         use EventSource::*;
         [Network, Time, IpScheme, UdpScheme, TcpScheme, IcmpScheme, NetcfgScheme].map(Ok)

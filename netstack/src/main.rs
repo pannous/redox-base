@@ -181,7 +181,7 @@ fn run(daemon: daemon::Daemon) -> Result<()> {
         }
         .map_err(|e| error!("Received packet error: {:?}", e));
     }
-    eprintln!("smolnetd: initial events processed, entering polling loop");
+    debug!("initial events processed, entering polling loop");
 
     for event_res in event_queue.map(|r| r.map(|e| e.user_data)) {
         let event = event_res?;

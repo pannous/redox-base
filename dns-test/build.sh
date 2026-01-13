@@ -1,5 +1,5 @@
 #!/bin/bash
-CRANELIFT="/opt/other/redox/rust/compiler/rustc_codegen_cranelift/target/release/librustc_codegen_cranelift.dylib"
+CRANELIFT="/opt/other/rustc_codegen_cranelift/dist/lib/librustc_codegen_cranelift.dylib"
 TARGET="aarch64-unknown-redox-clif.json"
 SYSROOT="/opt/other/redox/build/aarch64/sysroot/lib"
 

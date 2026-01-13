@@ -14,7 +14,6 @@ path = "src/main.rs"
 ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "gzip"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
 rustls-rustcrypto = "0.0.2-alpha"
-webpki-roots = "0.26"
 
 tar = "0.4"
 flate2 = "1.0"

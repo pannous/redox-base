@@ -10,8 +10,8 @@ name = "curl"
 path = "src/main.rs"
 
 [dependencies]
-# Use ureq with HTTP only (TLS disabled until C deps work on Redox)
-ureq = { version = "2", default-features = false, features = ["http"] }
+# Use ureq - HTTP via std::net, TLS optional
+ureq = "2"
 
 [profile.release]
 opt-level = "s"

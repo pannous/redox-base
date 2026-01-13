@@ -166,9 +166,9 @@ fn run(daemon: daemon::Daemon) -> Result<()> {
         [Network, Time, IpScheme, UdpScheme, TcpScheme, IcmpScheme, NetcfgScheme].map(Ok)
     };
 
-    eprintln!("smolnetd: processing initial events");
+    debug!("processing initial events");
     for (i, event_res) in all.into_iter().enumerate() {
-        eprintln!("smolnetd: initial event {}", i);
+        trace!("initial event {}", i);
         let event = event_res?;
         match event {
             EventSource::Network => smolnetd.on_network_scheme_event(),

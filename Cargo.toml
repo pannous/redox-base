@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "audiod",
     "daemon",
+    "dns-test",
     "init",
     "initfs",
     "initfs/archive-common",

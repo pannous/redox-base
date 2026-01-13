@@ -1,143 +1,105 @@
-// Simple HTTP client for Redox using std::net
+// Simple HTTP/HTTPS client for Redox using std::net + rustls-rustcrypto
 use std::env;
 use std::io::{self, Read, Write, BufRead, BufReader};
 use std::net::TcpStream;
 use std::process;
-use std::time::Duration;
+use std::sync::Arc;
+
+use rustls::pki_types::ServerName;
+use rustls::{ClientConfig, ClientConnection, StreamOwned, RootCertStore};
 
 fn print_usage() {
     eprintln!("Usage: curl [options] <url>");
     eprintln!("Options:");
     eprintln!("  -v           Verbose mode");
     eprintln!("  -I           Show headers only");
+    eprintln!();
+    eprintln!("Supports HTTP and HTTPS (pure-Rust TLS via rustls-rustcrypto).");
 }
 
-fn parse_url(url: &str) -> Option<(String, String, String)> {
-    // Parse http://host:port/path
-    let url = url.strip_prefix("http://").unwrap_or(url);
+struct UrlParts {
+    scheme: String,
+    host: String,
+    port: u16,
+    path: String,
+}
 
-    let (host_port, path) = url.split_once('/').unwrap_or((url, ""));
-    let path = if path.is_empty() { "/" } else { &format!("/{}", path) };
+fn parse_url(url: &str) -> Option<UrlParts> {
+    let (scheme, rest) = if url.starts_with("https://") {
+        ("https", &url[8..])
+    } else if url.starts_with("http://") {
+        ("http", &url[7..])
+    } else {
+        ("http", url)
+    };
+
+    let (host_port, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let path = if path.is_empty() { "/".to_string() } else { format!("/{}", path) };
+
+    let default_port = if scheme == "https" { 443 } else { 80 };
 
     let (host, port) = if host_port.contains(':') {
         let mut parts = host_port.split(':');
-        (parts.next()?.to_string(), parts.next()?.to_string())
+        let h = parts.next()?.to_string();
+        let p: u16 = parts.next()?.parse().ok()?;
+        (h, p)
     } else {
-        (host_port.to_string(), "80".to_string())
+        (host_port.to_string(), default_port)
     };
 
-    Some((host, port, path.to_string()))
+    Some(UrlParts { scheme: scheme.to_string(), host, port, path })
 }
 
-fn main() {
-    let args: Vec<String> = env::args().skip(1).collect();
+fn create_tls_config() -> Arc<ClientConfig> {
+    let crypto = Arc::new(rustls_rustcrypto::provider());
+    let root_store = RootCertStore::from_iter(
+        webpki_roots::TLS_SERVER_ROOTS.iter().cloned()
+    );
 
-    if args.is_empty() {
-        print_usage();
-        process::exit(1);
-    }
+    let config = ClientConfig::builder_with_provider(crypto)
+        .with_safe_default_protocol_versions()
+        .expect("TLS protocol versions")
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
 
-    let mut url = None;
-    let mut verbose = false;
-    let mut headers_only = false;
+    Arc::new(config)
+}
 
-    for arg in args.iter() {
-        match arg.as_str() {
-            "-v" => verbose = true,
-            "-I" => headers_only = true,
-            "-h" | "--help" => {
-                print_usage();
-                process::exit(0);
-            }
-            s if !s.starts_with('-') => url = Some(s.to_string()),
-            _ => {
-                eprintln!("Unknown option: {}", arg);
-                process::exit(1);
-            }
-        }
-    }
+trait HttpStream: Read + Write {}
+impl<T: Read + Write> HttpStream for T {}
 
-    let url = match url {
-        Some(u) => u,
-        None => {
-            eprintln!("curl: no URL specified");
-            process::exit(1);
-        }
-    };
-
-    let (host, port, path) = match parse_url(&url) {
-        Some(parts) => parts,
-        None => {
-            eprintln!("curl: invalid URL");
-            process::exit(1);
-        }
-    };
-
-    let addr = format!("{}:{}", host, port);
+fn do_request(
+    stream: &mut dyn HttpStream,
+    url: &UrlParts,
+    headers_only: bool,
+    verbose: bool,
+) -> io::Result<()> {
+    let method = if headers_only { "HEAD" } else { "GET" };
+    let request = format!(
+        "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: curl/redox\r\n\r\n",
+        method, url.path, url.host
+    );
 
     if verbose {
-        eprintln!("* Connecting to {}...", addr);
+        eprintln!("> {} {} HTTP/1.1", method, url.path);
+        eprintln!("> Host: {}", url.host);
+        eprintln!("> Connection: close");
+        eprintln!("> User-Agent: curl/redox");
+        eprintln!(">");
     }
 
-    // Use connect() instead of connect_timeout() because connect() handles DNS resolution
-    // via ToSocketAddrs trait, while connect_timeout() requires a pre-resolved SocketAddr
-    let mut stream = match TcpStream::connect(&addr) {
-        Ok(s) => {
-            if verbose {
-                eprintln!("* Connected to {} port {}", host, port);
-            }
-            s
-        }
-        Err(e) => {
-            eprintln!("curl: {}: Connection failed: {}", url, e);
-            process::exit(6);
-        }
-    };
-
-    stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
-    stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
-
-    let request = if headers_only {
-        format!("HEAD {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: curl/redox\r\n\r\n", path, host)
-    } else {
-        format!("GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: curl/redox\r\n\r\n", path, host)
-    };
-
-    if verbose {
-        eprintln!("> {}", request.lines().next().unwrap());
-        for line in request.lines().skip(1) {
-            if !line.is_empty() {
-                eprintln!("> {}", line);
-            }
-        }
-    }
-
-    if let Err(e) = stream.write_all(request.as_bytes()) {
-        eprintln!("curl: write error: {}", e);
-        process::exit(23);
-    }
-
-    if let Err(e) = stream.flush() {
-        eprintln!("curl: flush error: {}", e);
-        process::exit(23);
-    }
+    stream.write_all(request.as_bytes())?;
+    stream.flush()?;
 
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
 
     // Read status line
-    match reader.read_line(&mut line) {
-        Ok(_) => {
-            if verbose {
-                eprint!("< {}", line);
-            } else if headers_only {
-                print!("{}", line);
-            }
-        }
-        Err(e) => {
-            eprintln!("curl: read error: {}", e);
-            process::exit(56);
-        }
+    reader.read_line(&mut line)?;
+    if verbose {
+        eprint!("< {}", line);
+    } else if headers_only {
+        print!("{}", line);
     }
 
     // Read headers
@@ -157,15 +119,11 @@ fn main() {
                     print!("{}", line);
                 }
             }
-            Err(e) => {
-                eprintln!("curl: read error: {}", e);
-                process::exit(56);
-            }
+            Err(e) => return Err(e),
         }
     }
 
     if !headers_only {
-        // Read body
         let stdout = io::stdout();
         let mut handle = stdout.lock();
         let mut buffer = [0u8; 8192];
@@ -173,17 +131,114 @@ fn main() {
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
-                Ok(n) => {
-                    if let Err(e) = handle.write_all(&buffer[..n]) {
-                        eprintln!("curl: write error: {}", e);
-                        process::exit(23);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("curl: read error: {}", e);
-                    process::exit(56);
-                }
+                Ok(n) => handle.write_all(&buffer[..n])?,
+                Err(e) => return Err(e),
             }
         }
+    }
+
+    Ok(())
+}
+
+fn main() {
+    let args: Vec<String> = env::args().skip(1).collect();
+
+    if args.is_empty() {
+        print_usage();
+        process::exit(1);
+    }
+
+    let mut url_str = None;
+    let mut verbose = false;
+    let mut headers_only = false;
+
+    for arg in args.iter() {
+        match arg.as_str() {
+            "-v" => verbose = true,
+            "-I" => headers_only = true,
+            "-h" | "--help" => {
+                print_usage();
+                process::exit(0);
+            }
+            s if !s.starts_with('-') => url_str = Some(s.to_string()),
+            _ => {
+                eprintln!("Unknown option: {}", arg);
+                process::exit(1);
+            }
+        }
+    }
+
+    let url_str = match url_str {
+        Some(u) => u,
+        None => {
+            eprintln!("curl: no URL specified");
+            process::exit(1);
+        }
+    };
+
+    let url = match parse_url(&url_str) {
+        Some(parts) => parts,
+        None => {
+            eprintln!("curl: invalid URL");
+            process::exit(1);
+        }
+    };
+
+    let addr = format!("{}:{}", url.host, url.port);
+
+    if verbose {
+        eprintln!("* Connecting to {}...", addr);
+    }
+
+    let tcp_stream = match TcpStream::connect(&addr) {
+        Ok(s) => {
+            if verbose {
+                eprintln!("* Connected to {} port {}", url.host, url.port);
+            }
+            s
+        }
+        Err(e) => {
+            eprintln!("curl: {}: Connection failed: {}", url_str, e);
+            process::exit(6);
+        }
+    };
+
+    let result = if url.scheme == "https" {
+        if verbose {
+            eprintln!("* TLS handshake with {}...", url.host);
+        }
+
+        let tls_config = create_tls_config();
+        let server_name = match ServerName::try_from(url.host.clone()) {
+            Ok(name) => name,
+            Err(e) => {
+                eprintln!("curl: invalid server name '{}': {}", url.host, e);
+                process::exit(1);
+            }
+        };
+
+        let tls_conn = match ClientConnection::new(tls_config, server_name) {
+            Ok(conn) => conn,
+            Err(e) => {
+                eprintln!("curl: TLS connection failed: {}", e);
+                process::exit(35);
+            }
+        };
+
+        let mut tls_stream = StreamOwned::new(tls_conn, tcp_stream);
+
+        if verbose {
+            eprintln!("* TLS handshake complete");
+        }
+
+        do_request(&mut tls_stream, &url, headers_only, verbose)
+    } else {
+        let mut tcp = tcp_stream;
+        do_request(&mut tcp, &url, headers_only, verbose)
+    };
+
+    if let Err(e) = result {
+        eprintln!("curl: {}", e);
+        process::exit(56);
     }
 }

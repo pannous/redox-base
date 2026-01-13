@@ -10,8 +10,7 @@ name = "curl"
 path = "src/main.rs"
 
 [dependencies]
-# Use ureq - HTTP via std::net, TLS optional
-ureq = "2"
+# No dependencies - pure std::net HTTP client
 
 [profile.release]
 opt-level = "s"

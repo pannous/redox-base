@@ -3,12 +3,12 @@
 
 use std::env;
 use std::fs::{self, File};
-use std::io::{self, Read, Write, BufReader};
+use std::io::Read;
 use std::path::Path;
 use std::process;
 use std::sync::Arc;
 
-use ureq::{Agent, tls::{TlsConfig, TlsProvider}};
+use ureq::{Agent, tls::{TlsConfig, TlsProvider, RootCerts}};
 
 // HTTPS package server (now works with pure-Rust TLS!)
 const PKG_SERVER: &str = "https://static.redox-os.org/pkg/aarch64-unknown-redox";
@@ -17,13 +17,10 @@ const LOCAL_PKG: &str = "/scheme/9p.hostshare/packages";
 
 fn create_agent() -> Agent {
     let crypto = Arc::new(rustls_rustcrypto::provider());
-    let root_store = rustls::RootCertStore::from_iter(
-        webpki_roots::TLS_SERVER_ROOTS.iter().cloned()
-    );
 
     let tls_config = TlsConfig::builder()
         .provider(TlsProvider::Rustls)
-        .root_certs(ureq::tls::RootCerts::Owned(Arc::new(root_store)))
+        .root_certs(RootCerts::WebPki)
         .unversioned_rustls_crypto_provider(crypto)
         .build();
 

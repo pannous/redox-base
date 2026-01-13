@@ -10,8 +10,8 @@ name = "curl"
 path = "src/main.rs"
 
 [dependencies]
-# Use ureq with std networking but no TLS (ring requires C dependencies)
-ureq = { version = "2", default-features = false, features = ["std"] }
+# Use ureq with HTTP only (TLS disabled until C deps work on Redox)
+ureq = { version = "2", default-features = false, features = ["http"] }
 
 [profile.release]
 opt-level = "s"

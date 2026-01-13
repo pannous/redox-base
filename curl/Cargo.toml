@@ -10,8 +10,8 @@ name = "curl"
 path = "src/main.rs"
 
 [dependencies]
-# Use ureq for HTTP with default features (includes std networking)
-ureq = "2"
+# Use ureq with std networking but no TLS (ring requires C dependencies)
+ureq = { version = "2", default-features = false, features = ["std"] }
 
 [profile.release]
 opt-level = "s"

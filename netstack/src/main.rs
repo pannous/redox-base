@@ -160,6 +160,7 @@ fn run(daemon: daemon::Daemon) -> Result<()> {
     // libredox::call::setrens(0, 0).context("smolnetd: failed to enter null namespace")?;
     eprintln!("smolnetd: setrens DISABLED - staying in ENS=1");
 
+    eprintln!("smolnetd: entering event loop");
     let all = {
         use EventSource::*;
         [Network, Time, IpScheme, UdpScheme, TcpScheme, IcmpScheme, NetcfgScheme].map(Ok)
@@ -169,7 +170,8 @@ fn run(daemon: daemon::Daemon) -> Result<()> {
         .into_iter()
         .chain(event_queue.map(|r| r.map(|e| e.user_data)))
     {
-        match event_res? {
+        let event = event_res?;
+        match event {
             EventSource::Network => smolnetd.on_network_scheme_event(),
             EventSource::Time => smolnetd.on_time_event(),
             EventSource::IpScheme => smolnetd.on_ip_scheme_event(),
@@ -180,6 +182,7 @@ fn run(daemon: daemon::Daemon) -> Result<()> {
         }
         .map_err(|e| error!("Received packet error: {:?}", e));
     }
+    eprintln!("smolnetd: event loop exited!");
     Ok(())
 }
 

@@ -47,7 +47,8 @@ mod udp;
 type SocketSet = SmoltcpSocketSet<'static>;
 type Interface = Rc<RefCell<SmoltcpInterface>>;
 
-const MAX_DURATION: Duration = Duration::from_micros(u64::MAX);
+// Use 100ms max poll interval to ensure timely processing of ping/TCP retransmissions
+const MAX_DURATION: Duration = Duration::from_millis(100);
 const MIN_DURATION: Duration = Duration::from_micros(0);
 
 fn getcfg(key: &str) -> Result<String> {

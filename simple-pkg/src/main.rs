@@ -1,19 +1,40 @@
 // Simple package manager for Redox OS
-// Uses ureq for HTTP (no async runtime issues)
+// HTTPS support via pure-Rust rustls-rustcrypto
 
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, Read, Write, BufReader};
 use std::path::Path;
 use std::process;
+use std::sync::Arc;
 
-// HTTPS server requires TLS which we don't have, so use local packages
-const PKG_SERVER: &str = "http://static.redox-os.org/pkg/aarch64-unknown-redox";
+use ureq::{Agent, tls::{TlsConfig, TlsProvider}};
+
+// HTTPS package server (now works with pure-Rust TLS!)
+const PKG_SERVER: &str = "https://static.redox-os.org/pkg/aarch64-unknown-redox";
 const PKG_DIR: &str = "/pkg";
-const LOCAL_PKG: &str = "/scheme/9p.hostshare/packages";  // Host can put packages here
+const LOCAL_PKG: &str = "/scheme/9p.hostshare/packages";
+
+fn create_agent() -> Agent {
+    let crypto = Arc::new(rustls_rustcrypto::provider());
+    let root_store = rustls::RootCertStore::from_iter(
+        webpki_roots::TLS_SERVER_ROOTS.iter().cloned()
+    );
+
+    let tls_config = TlsConfig::builder()
+        .provider(TlsProvider::Rustls)
+        .root_certs(ureq::tls::RootCerts::Owned(Arc::new(root_store)))
+        .unversioned_rustls_crypto_provider(crypto)
+        .build();
+
+    Agent::config_builder()
+        .tls_config(tls_config)
+        .build()
+        .new_agent()
+}
 
 fn print_usage() {
-    eprintln!("Redox Package Manager (simple-pkg)");
+    eprintln!("Redox Package Manager (simple-pkg) v0.2");
     eprintln!();
     eprintln!("Usage: pkg <command> [args]");
     eprintln!();
@@ -22,23 +43,23 @@ fn print_usage() {
     eprintln!("  available         List packages in {}", LOCAL_PKG);
     eprintln!("  install <name>    Install package (from local or URL)");
     eprintln!("  install-local <path>  Install from local .tar.gz file");
-    eprintln!("  search <name>     Search remote packages (requires HTTP)");
+    eprintln!("  search <name>     Search remote packages");
     eprintln!("  fetch <url>       Fetch and extract a package from URL");
     eprintln!();
-    eprintln!("Note: Remote operations require HTTP (not HTTPS).");
-    eprintln!("For HTTPS packages, download on host and place in:");
-    eprintln!("  {}", LOCAL_PKG);
+    eprintln!("HTTPS supported via pure-Rust TLS (rustls-rustcrypto).");
 }
 
 fn fetch_url(url: &str) -> Result<Vec<u8>, String> {
     eprintln!("Fetching: {}", url);
 
-    let response = ureq::get(url)
+    let agent = create_agent();
+    let response = agent.get(url)
         .call()
-        .map_err(|e| format!("HTTP error: {}", e))?;
+        .map_err(|e| format!("HTTP(S) error: {}", e))?;
 
     let mut data = Vec::new();
-    response.into_reader()
+    response.into_body()
+        .into_reader()
         .read_to_end(&mut data)
         .map_err(|e| format!("Read error: {}", e))?;
 

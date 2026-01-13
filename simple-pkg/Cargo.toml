@@ -2,7 +2,7 @@
 
 [package]
 name = "simple-pkg"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -10,8 +10,12 @@ name = "pkg"
 path = "src/main.rs"
 
 [dependencies]
-# No TLS - use HTTP only or local files
-ureq = { version = "2", default-features = false }
+# HTTPS support via pure-Rust rustls-rustcrypto
+ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "gzip"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
+rustls-rustcrypto = "0.0.2-alpha"
+webpki-roots = "0.26"
+
 tar = "0.4"
 flate2 = "1.0"
 toml = "0.8"

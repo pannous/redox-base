@@ -130,7 +130,7 @@ fn main() {
         Ok(_) => {
             if verbose {
                 eprint!("< {}", line);
-            } else {
+            } else if headers_only {
                 print!("{}", line);
             }
         }
@@ -141,36 +141,26 @@ fn main() {
     }
 
     // Read headers
-    let mut in_body = false;
     loop {
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) => break,
             Ok(_) => {
                 if line == "\r\n" || line == "\n" {
-                    in_body = true;
                     if verbose {
                         eprintln!("<");
                     }
-                    if headers_only {
-                        break;
-                    }
-                } else if verbose || !in_body {
-                    if verbose {
-                        eprint!("< {}", line);
-                    } else {
-                        print!("{}", line);
-                    }
+                    break;
+                } else if verbose {
+                    eprint!("< {}", line);
+                } else if headers_only {
+                    print!("{}", line);
                 }
             }
             Err(e) => {
                 eprintln!("curl: read error: {}", e);
                 process::exit(56);
             }
-        }
-
-        if in_body {
-            break;
         }
     }
 

@@ -10,8 +10,8 @@ name = "curl"
 path = "src/main.rs"
 
 [dependencies]
-# Use ureq for HTTP with TLS support
-ureq = { version = "2", features = ["tls"] }
+# Use ureq for HTTP with default features (includes std networking)
+ureq = "2"
 
 [profile.release]
 opt-level = "s"

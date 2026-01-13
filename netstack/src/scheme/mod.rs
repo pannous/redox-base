@@ -243,7 +243,9 @@ impl Smolnetd {
     }
 
     pub fn on_time_event(&mut self) -> Result<()> {
+        eprintln!("smolnetd: TIME EVENT received!");
         let timeout = self.poll()?;
+        eprintln!("smolnetd: scheduling next time event in {:?}", timeout);
         self.schedule_time_event(timeout)?;
         //TODO: Fix network scheme to ensure events are not missed
         self.on_network_scheme_event()

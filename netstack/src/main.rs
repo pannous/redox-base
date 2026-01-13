@@ -196,7 +196,7 @@ fn run(daemon: daemon::Daemon) -> Result<()> {
         }
         .map_err(|e| error!("Received packet error: {:?}", e));
     }
-    eprintln!("smolnetd: event loop exited!");
+    info!("event loop exited!");
     Ok(())
 }
 

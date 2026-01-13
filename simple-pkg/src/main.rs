@@ -230,22 +230,26 @@ fn fetch_and_install(url: &str, name: &str) {
 
 fn extract_tar_gz(archive_path: &str, dest: &str) -> Result<(), String> {
     use std::io::BufReader;
+    use flate2::read::GzDecoder;
 
     let file = File::open(archive_path)
         .map_err(|e| format!("Cannot open archive: {}", e))?;
 
-    // Use flate2 for gzip if available, otherwise try raw tar
-    // For simplicity, we'll try to use the tar crate directly
-    // Note: This requires the file to be uncompressed or we need flate2
-
-    // Try treating as plain tar first (many Redox packages are .tar not .tar.gz)
     let reader = BufReader::new(file);
 
-    // The tar crate can handle this
-    let mut archive = tar::Archive::new(reader);
-
-    archive.unpack(dest)
-        .map_err(|e| format!("Extraction failed: {}", e))?;
+    // Check if file is gzipped by extension
+    if archive_path.ends_with(".gz") {
+        // Decompress gzip first
+        let decoder = GzDecoder::new(reader);
+        let mut archive = tar::Archive::new(decoder);
+        archive.unpack(dest)
+            .map_err(|e| format!("Extraction failed: {}", e))?;
+    } else {
+        // Plain tar file
+        let mut archive = tar::Archive::new(reader);
+        archive.unpack(dest)
+            .map_err(|e| format!("Extraction failed: {}", e))?;
+    }
 
     Ok(())
 }

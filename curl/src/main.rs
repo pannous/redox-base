@@ -79,10 +79,9 @@ fn main() {
         eprintln!("* Connecting to {}...", addr);
     }
 
-    let mut stream = match TcpStream::connect_timeout(
-        &addr.parse().expect("Invalid address"),
-        Duration::from_secs(30)
-    ) {
+    // Use connect() instead of connect_timeout() because connect() handles DNS resolution
+    // via ToSocketAddrs trait, while connect_timeout() requires a pre-resolved SocketAddr
+    let mut stream = match TcpStream::connect(&addr) {
         Ok(s) => {
             if verbose {
                 eprintln!("* Connected to {} port {}", host, port);

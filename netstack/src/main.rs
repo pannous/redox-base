@@ -161,7 +161,7 @@ fn run(daemon: daemon::Daemon) -> Result<()> {
     eprintln!("smolnetd: setrens DISABLED - staying in ENS=1");
 
     eprintln!("smolnetd: entering event loop");
-    let all = {
+    let all: [std::result::Result<EventSource, std::io::Error>; 7] = {
         use EventSource::*;
         [Network, Time, IpScheme, UdpScheme, TcpScheme, IcmpScheme, NetcfgScheme].map(Ok)
     };

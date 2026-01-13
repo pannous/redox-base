@@ -10,8 +10,8 @@ name = "curl"
 path = "src/main.rs"
 
 [dependencies]
-# Use ureq for simple HTTP - no async, no TLS by default
-ureq = { version = "2", default-features = false }
+# Use ureq for HTTP with TLS support
+ureq = { version = "2", features = ["tls"] }
 
 [profile.release]
 opt-level = "s"

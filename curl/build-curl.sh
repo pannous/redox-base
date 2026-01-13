@@ -14,10 +14,6 @@ export RUSTC_WRAPPER=""
 export RUSTFLAGS="-Zcodegen-backend=${CRANELIFT} \
   -Crelocation-model=static \
   -Clink-arg=-L${RELIBC} \
-  -Clink-arg=${RELIBC}/crt0.o \
-  -Clink-arg=${RELIBC}/crti.o \
-  -Clink-arg=${RELIBC}/crtn.o \
-  -Clink-arg=-lunwind_stubs \
   -Clink-arg=-z -Clink-arg=muldefs \
   -Cpanic=abort"
 

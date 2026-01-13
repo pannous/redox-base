@@ -5,6 +5,8 @@ SYSROOT="/opt/other/redox/build/aarch64/sysroot/lib"
 
 cp /opt/other/redox/tools/$TARGET .
 
+CARGO_INCREMENTAL=0 \
+RUSTC_WRAPPER="" \
 RUSTFLAGS="-Zcodegen-backend=${CRANELIFT} -Crelocation-model=static -Clto=no -Clink-arg=-L${SYSROOT} -Clink-arg=-z -Clink-arg=muldefs -Cpanic=abort" \
 cargo +nightly build --target $TARGET --release \
   -Zbuild-std=core,alloc,std,panic_abort

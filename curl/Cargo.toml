@@ -2,7 +2,7 @@
 
 [package]
 name = "curl"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -10,7 +10,11 @@ name = "curl"
 path = "src/main.rs"
 
 [dependencies]
-# No dependencies - pure std::net HTTP client
+# HTTPS support via pure-Rust rustls-rustcrypto
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
+rustls-rustcrypto = "0.0.2-alpha"
+rustls-pki-types = "1"
+webpki-roots = "0.26"
 
 [profile.release]
 opt-level = "s"

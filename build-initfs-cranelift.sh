@@ -3,9 +3,11 @@
 set -e
 
 cd "$(dirname "$0")"
+SCRIPT_DIR="$(pwd)"
 
 NIGHTLY="nightly-2026-01-02"
 TARGET="aarch64-unknown-redox-clif.json"
+TARGET_ABS="${SCRIPT_DIR}/${TARGET}"
 CRANELIFT="/opt/other/rustc_codegen_cranelift/dist/lib/librustc_codegen_cranelift.dylib"
 RELIBC="/opt/other/redox/recipes/core/relibc/source/target/aarch64-unknown-redox-clif/release"
 REDOXFS="/opt/other/redox/recipes/core/redoxfs/source/target/aarch64-unknown-redox-clif/release/redoxfs"
@@ -62,12 +64,20 @@ done
 # nulld is a copy of zerod
 cp /tmp/initfs-cranelift/bin/zerod /tmp/initfs-cranelift/bin/nulld
 
-# Copy redoxfs (should be pre-built with Cranelift)
-if [ -f "$REDOXFS" ]; then
-    llvm-strip -o /tmp/initfs-cranelift/bin/redoxfs "$REDOXFS"
-else
-    echo "WARNING: redoxfs not found at $REDOXFS"
-fi
+# Build and copy redoxfs
+echo "=== Building redoxfs ==="
+REDOXFS_SRC="/opt/other/redox/recipes/core/redoxfs/source"
+pushd "$REDOXFS_SRC" > /dev/null
+cargo +${NIGHTLY} build \
+    --target "${TARGET_ABS}" \
+    --release \
+    --no-default-features \
+    --features "std,log" \
+    --bin redoxfs \
+    -Z build-std=core,alloc,std,panic_abort \
+    -Zbuild-std-features=compiler_builtins/no-f16-f128
+popd > /dev/null
+llvm-strip -o /tmp/initfs-cranelift/bin/redoxfs "$REDOXFS"
 
 # Copy config files (use aarch64 init_drivers.rc for ARM)
 cp init.rc /tmp/initfs-cranelift/etc/init.rc

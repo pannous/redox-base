@@ -3,6 +3,8 @@
 //! This is a minimal implementation supporting the operations needed for
 //! a read-only or read-write filesystem mount via virtio-9p.
 
+#![allow(dead_code)]
+
 
 // 9P2000.L message types
 #[repr(u8)]

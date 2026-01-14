@@ -5,7 +5,7 @@ use event::{EventQueue, UserData};
 use redox_scheme::scheme::SchemeSync;
 use redox_scheme::{CallerCtx, OpenResult};
 use syscall::schemev2::NewFdFlags;
-use syscall::{Error, EventFlags, Result, EACCES, EAGAIN, EBADF, ENOENT, O_NONBLOCK};
+use syscall::{Error, EventFlags, Result, EAGAIN, EBADF, ENOENT, O_NONBLOCK};
 
 use crate::display::Display;
 use crate::text::TextScreen;
@@ -139,7 +139,7 @@ impl SchemeSync for FbconScheme {
         }
     }
 
-    fn fcntl(&mut self, id: usize, cmd: usize, arg: usize, _ctx: &CallerCtx) -> Result<usize> {
+    fn fcntl(&mut self, id: usize, _cmd: usize, _arg: usize, _ctx: &CallerCtx) -> Result<usize> {
         if !self.handles.get(&id).is_some() {
             return Err(Error::new(EBADF));
         };

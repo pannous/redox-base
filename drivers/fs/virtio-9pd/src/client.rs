@@ -50,6 +50,7 @@ pub struct Client9p<'a> {
     queue: Arc<Queue<'a>>,
     tag_counter: AtomicU16,
     fid_counter: AtomicU32,
+    #[allow(dead_code)]
     root_fid: u32,
     msize: u32,
 }

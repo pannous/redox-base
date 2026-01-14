@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::read_dir;
-use std::io::{Result, Write};
+use std::io::Result;
 use std::path::Path;
 use std::process::Command;
 use std::{env, fs};
@@ -185,7 +185,7 @@ fn run_command(line_raw: &str) {
 
 fn debug_serial(msg: &str) {
     // Write directly to kernel debug scheme for early output
-    if let Ok(mut fd) = libredox::Fd::open("/scheme/debug", O_WRONLY, 0) {
+    if let Ok(fd) = libredox::Fd::open("/scheme/debug", O_WRONLY, 0) {
         let _ = fd.write(msg.as_bytes());
         let _ = fd.write(b"\n");
     }

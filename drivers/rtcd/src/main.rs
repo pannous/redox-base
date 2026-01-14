@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use anyhow::{Context, Result};
 
 // TODO: Do not use target architecture to distinguish these.

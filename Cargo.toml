@@ -18,6 +18,8 @@ members = [
     "test-9p",
     "simple-ls",
     "simple-coreutils",
+    "simple-pkg",
+    "curl",
     "sync",
     "test-mode",
 

@@ -101,7 +101,8 @@ impl<'a> Client9p<'a> {
 
         log::trace!("transact: calling queue.send()");
         // Use spin-polling instead of futures executor since we don't have an event loop
-        let pending = self.queue.send(chain);
+        let pending = self.queue.send(chain)
+            .ok_or_else(|| anyhow!("no descriptors available"))?;
         let written = spin_poll(pending) as usize;
         log::trace!("transact: queue.send() returned {} bytes", written);
 

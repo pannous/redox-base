@@ -189,13 +189,61 @@ impl<'a> Queue<'a> {
         (0..self.descriptor.len() as u16).for_each(|i| self.descriptor_stack.push(i));
     }
 
+    /// Try to reclaim any completed TX descriptors.
+    /// Call this periodically to prevent descriptor exhaustion.
+    pub fn reclaim_completed(&self) {
+        let used_head = self.used.head_index();
+        let last_known = self.used_head.load(Ordering::SeqCst);
+
+        // Process all completed requests since last check
+        let mut current = last_known;
+        while current != used_head {
+            let element = self.used.get_element_at(current as usize);
+            let mut table_index = element.table_index.get();
+
+            // Recycle all descriptors in this chain
+            while self.descriptor[table_index as usize]
+                .flags()
+                .contains(DescriptorFlags::NEXT)
+            {
+                let next_index = self.descriptor[table_index as usize].next();
+                self.descriptor_stack.push(table_index as u16);
+                table_index = next_index.into();
+            }
+            // Push the last descriptor
+            self.descriptor_stack.push(table_index as u16);
+
+            current = current.wrapping_add(1);
+        }
+
+        self.used_head.store(used_head, Ordering::SeqCst);
+    }
+
+    /// Returns the number of available descriptors.
+    pub fn available_descriptors(&self) -> usize {
+        self.descriptor_stack.len()
+    }
+
     #[must_use = "The function returns a future that must be awaited to ensure the sent request is completed."]
-    pub fn send(&self, chain: Vec<Buffer>) -> PendingRequest<'a> {
+    pub fn send(&self, chain: Vec<Buffer>) -> Option<PendingRequest<'a>> {
+        // Try to reclaim completed descriptors before checking availability
+        self.reclaim_completed();
+
+        let chain_len = chain.len();
+        if self.descriptor_stack.len() < chain_len {
+            log::warn!(
+                "virtio-core: not enough descriptors ({} available, {} needed)",
+                self.descriptor_stack.len(),
+                chain_len
+            );
+            return None;
+        }
+
         let mut first_descriptor: Option<usize> = None;
         let mut last_descriptor: Option<usize> = None;
 
         for buffer in chain.iter() {
-            let descriptor = self.descriptor_stack.pop().unwrap() as usize;
+            let descriptor = self.descriptor_stack.pop()? as usize;
 
             if first_descriptor.is_none() {
                 first_descriptor = Some(descriptor);
@@ -226,10 +274,10 @@ impl<'a> Queue<'a> {
         self.available.set_head_idx(index as u16 + 1);
         self.notification_bell.ring(self.queue_index);
 
-        PendingRequest {
+        Some(PendingRequest {
             queue: self.sref.upgrade().unwrap(),
             first_descriptor: first_descriptor as u32,
-        }
+        })
     }
 
     /// Returns the number of descriptors in the descriptor table of this queue.

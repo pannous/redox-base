@@ -42,7 +42,10 @@ impl<'a> VirtioNet<'a> {
                 .chain(Buffer::new_unsized(&rx_buffers[i]).flags(DescriptorFlags::WRITE_ONLY))
                 .build();
 
-            let _ = rx.send(chain);
+            // RX buffers are recycled via recycle_descriptor(), so we can ignore the future
+            if rx.send(chain).is_none() {
+                log::warn!("virtio-netd: failed to add RX buffer {} - no descriptors", i);
+            }
         }
 
         Ok(Self {
@@ -113,8 +116,7 @@ impl<'a> NetworkAdapter for VirtioNet<'a> {
     }
 
     fn write_packet(&mut self, buffer: &[u8]) -> syscall::Result<usize> {
-        // Fire-and-forget TX: Use Box::leak to extend DMA buffer lifetimes.
-        // This leaks memory but avoids blocking. For production, implement descriptor recycling.
+        // Allocate DMA buffers for header and payload
         let header = match Dma::<VirtHeader>::zeroed() {
             Ok(h) => Box::leak(Box::new(unsafe { h.assume_init() })),
             Err(e) => {
@@ -137,8 +139,14 @@ impl<'a> NetworkAdapter for VirtioNet<'a> {
             .chain(Buffer::new_unsized(payload))
             .build();
 
-        // Fire-and-forget: drop the completion future, don't block waiting for TX done
-        let _ = self.tx.send(chain);
-        Ok(buffer.len())
+        // send() now reclaims completed TX descriptors automatically before checking availability
+        match self.tx.send(chain) {
+            Some(_) => Ok(buffer.len()),
+            None => {
+                // No descriptors available even after reclaiming - would block
+                log::warn!("virtio-netd: TX queue full, dropping packet ({} bytes)", buffer.len());
+                Err(syscall::Error::new(syscall::EWOULDBLOCK))
+            }
+        }
     }
 }

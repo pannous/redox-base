@@ -64,7 +64,9 @@ impl Drop for VirtGpuFramebuffer<'_> {
                 .chain(Buffer::new(&header).flags(DescriptorFlags::WRITE_ONLY))
                 .build();
 
-            self.queue.send(command).await;
+            self.queue.send(command)
+                .expect("virtio-gpud: no descriptors for resource unref")
+                .await;
         });
     }
 }
@@ -153,7 +155,9 @@ impl VirtGpuAdapter<'_> {
             .chain(Buffer::new(&header).flags(DescriptorFlags::WRITE_ONLY))
             .build();
 
-        self.control_queue.send(command).await;
+        self.control_queue.send(command)
+            .expect("virtio-gpud: no descriptors for request")
+            .await;
         Ok(header)
     }
 
@@ -165,7 +169,9 @@ impl VirtGpuAdapter<'_> {
             .chain(Buffer::new(&header).flags(DescriptorFlags::WRITE_ONLY))
             .build();
 
-        self.control_queue.send(command).await;
+        self.control_queue.send(command)
+            .expect("virtio-gpud: no descriptors for fenced request")
+            .await;
         Ok(header)
     }
 
@@ -178,7 +184,9 @@ impl VirtGpuAdapter<'_> {
             .chain(Buffer::new(&response).flags(DescriptorFlags::WRITE_ONLY))
             .build();
 
-        self.control_queue.send(command).await;
+        self.control_queue.send(command)
+            .expect("virtio-gpud: no descriptors for get_display_info")
+            .await;
         assert!(response.header.ty == CommandTy::RespOkDisplayInfo);
 
         Ok(response)
@@ -193,7 +201,9 @@ impl VirtGpuAdapter<'_> {
             .chain(Buffer::new(&response).flags(DescriptorFlags::WRITE_ONLY))
             .build();
 
-        self.control_queue.send(command).await;
+        self.control_queue.send(command)
+            .expect("virtio-gpud: no descriptors for get_edid")
+            .await;
         assert!(response.header.ty == CommandTy::RespOkEdid);
 
         Ok(response)
@@ -228,7 +238,9 @@ impl VirtGpuAdapter<'_> {
         .unwrap();
         futures::executor::block_on(async {
             let command = ChainBuilder::new().chain(Buffer::new(&request)).build();
-            self.cursor_queue.send(command).await;
+            self.cursor_queue.send(command)
+                .expect("virtio-gpud: no descriptors for cursor update")
+                .await;
         });
     }
 
@@ -237,7 +249,9 @@ impl VirtGpuAdapter<'_> {
 
         futures::executor::block_on(async {
             let command = ChainBuilder::new().chain(Buffer::new(&request)).build();
-            self.cursor_queue.send(command).await;
+            self.cursor_queue.send(command)
+                .expect("virtio-gpud: no descriptors for cursor move")
+                .await;
         });
     }
 }
@@ -405,7 +419,9 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
                 .chain(Buffer::new(&header).flags(DescriptorFlags::WRITE_ONLY))
                 .build();
 
-            self.control_queue.send(command).await;
+            self.control_queue.send(command)
+                .expect("virtio-gpud: no descriptors for attach_backing")
+                .await;
             assert_eq!(header.ty, CommandTy::RespOkNodata);
 
             VirtGpuFramebuffer {
@@ -502,7 +518,9 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
                 .chain(Buffer::new(&header).flags(DescriptorFlags::WRITE_ONLY))
                 .build();
 
-            self.control_queue.send(command).await;
+            self.control_queue.send(command)
+                .expect("virtio-gpud: no descriptors for cursor attach_backing")
+                .await;
             assert_eq!(header.ty, CommandTy::RespOkNodata);
 
             //Transfering cursor resource to host

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use ureq::{Agent, tls::{TlsConfig, TlsProvider, RootCerts}};
 
-// HTTPS package server (now works with pure-Rust TLS!)
+// HTTPS package server
 const PKG_SERVER: &str = "https://static.redox-os.org/pkg/aarch64-unknown-redox";
 const PKG_DIR: &str = "/pkg";
 const LOCAL_PKG: &str = "/scheme/9p.hostshare/packages";
@@ -31,19 +31,19 @@ fn create_agent() -> Agent {
 }
 
 fn print_usage() {
-    eprintln!("Redox Package Manager (simple-pkg) v0.2");
+    eprintln!("Redox Package Manager (simple-pkg) v0.3");
     eprintln!();
     eprintln!("Usage: pkg <command> [args]");
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  list              List installed packages");
     eprintln!("  available         List packages in {}", LOCAL_PKG);
-    eprintln!("  install <name>    Install package (from local or URL)");
+    eprintln!("  install <name>    Install package (from local or remote)");
     eprintln!("  install-local <path>  Install from local .tar.gz file");
-    eprintln!("  search <name>     Search remote packages");
+    eprintln!("  search <query>    Search remote packages");
     eprintln!("  fetch <url>       Fetch and extract a package from URL");
     eprintln!();
-    eprintln!("HTTPS supported via pure-Rust TLS (rustls-rustcrypto).");
+    eprintln!("HTTPS supported via pure-Rust TLS.");
 }
 
 fn fetch_url(url: &str) -> Result<Vec<u8>, String> {
@@ -61,6 +61,30 @@ fn fetch_url(url: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Read error: {}", e))?;
 
     Ok(data)
+}
+
+/// Parse repo.toml format: name = "hash"
+fn parse_repo(content: &str) -> Vec<(String, String)> {
+    let mut packages = Vec::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+        // Skip empty lines, comments, and section headers
+        if line.is_empty() || line.starts_with('#') || line.starts_with('[') {
+            continue;
+        }
+
+        // Parse: name = "hash"
+        if let Some((name, rest)) = line.split_once('=') {
+            let name = name.trim();
+            let hash = rest.trim().trim_matches('"').trim_matches('\'');
+            if !name.is_empty() && !hash.is_empty() {
+                packages.push((name.to_string(), hash.to_string()));
+            }
+        }
+    }
+
+    packages
 }
 
 fn list_installed() {
@@ -119,7 +143,6 @@ fn install_local(path: &str) {
         process::exit(1);
     }
 
-    // Extract package name from filename
     let name = Path::new(&path)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -131,9 +154,24 @@ fn install_local(path: &str) {
 
     eprintln!("Installing {} from {}...", name, path);
 
-    match extract_tar_gz(&path, &dest_dir) {
-        Ok(_) => eprintln!("Successfully installed {}", name),
-        Err(e) => eprintln!("Error extracting: {}", e),
+    // Detect format by extension
+    if path.ends_with(".pkgar") {
+        // Read pkgar file and extract
+        match fs::read(&path) {
+            Ok(data) => {
+                match extract_pkgar(&data, &dest_dir) {
+                    Ok(count) => eprintln!("Successfully installed {} ({} files)", name, count),
+                    Err(e) => eprintln!("Error extracting pkgar: {}", e),
+                }
+            }
+            Err(e) => eprintln!("Error reading pkgar: {}", e),
+        }
+    } else {
+        // Assume tar.gz format
+        match extract_tar_gz(&path, &dest_dir) {
+            Ok(_) => eprintln!("Successfully installed {}", name),
+            Err(e) => eprintln!("Error extracting: {}", e),
+        }
     }
 }
 
@@ -143,15 +181,19 @@ fn search_packages(query: &str) {
     match fetch_url(&repo_url) {
         Ok(data) => {
             let content = String::from_utf8_lossy(&data);
-            println!("Packages matching '{}':", query);
+            let packages = parse_repo(&content);
 
-            for line in content.lines() {
-                if line.starts_with('[') && line.ends_with(']') {
-                    let name = &line[1..line.len()-1];
-                    if name.contains(query) || query == "*" || query.is_empty() {
-                        println!("  {}", name);
-                    }
-                }
+            let query_lower = query.to_lowercase();
+            let matches: Vec<_> = packages.iter()
+                .filter(|(name, _)| {
+                    query == "*" || query.is_empty() ||
+                    name.to_lowercase().contains(&query_lower)
+                })
+                .collect();
+
+            println!("Packages matching '{}' ({} found):", query, matches.len());
+            for (name, _hash) in matches {
+                println!("  {}", name);
             }
         }
         Err(e) => eprintln!("Error fetching repo: {}", e),
@@ -159,52 +201,144 @@ fn search_packages(query: &str) {
 }
 
 fn install_package(name: &str) {
-    // First try to get package info from repo.toml
     let repo_url = format!("{}/repo.toml", PKG_SERVER);
 
-    let version = match fetch_url(&repo_url) {
+    let _hash = match fetch_url(&repo_url) {
         Ok(data) => {
             let content = String::from_utf8_lossy(&data);
-            find_package_version(&content, name)
+            let packages = parse_repo(&content);
+            if !packages.iter().any(|(n, _)| n == name) {
+                eprintln!("Package '{}' not found in repository", name);
+                process::exit(1);
+            }
         }
-        Err(_) => None,
-    };
-
-    let pkg_url = match version {
-        Some(v) => format!("{}/{}/{}.tar.gz", PKG_SERVER, name, v),
-        None => {
-            // Try common version patterns
-            eprintln!("Package version not found in repo, trying to fetch directly...");
-            format!("{}/{}.tar.gz", PKG_SERVER, name)
+        Err(e) => {
+            eprintln!("Error fetching repo: {}", e);
+            process::exit(1);
         }
     };
 
-    fetch_and_install(&pkg_url, name);
+    // Redox packages are .pkgar format, directly named
+    let pkg_url = format!("{}/{}.pkgar", PKG_SERVER, name);
+    fetch_and_install_pkgar(&pkg_url, name);
 }
 
-fn find_package_version(repo_content: &str, name: &str) -> Option<String> {
-    let mut in_package = false;
-    let target_header = format!("[{}]", name);
+fn fetch_and_install_pkgar(url: &str, name: &str) {
+    eprintln!("Downloading {} from {}", name, url);
 
-    for line in repo_content.lines() {
-        if line.trim() == target_header {
-            in_package = true;
-            continue;
+    let data = match fetch_url(url) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("Error fetching package: {}", e);
+            process::exit(1);
         }
-        if in_package {
-            if line.starts_with('[') {
-                break; // Next package section
-            }
-            if line.starts_with("version") {
-                // Parse: version = "1.2.3"
-                if let Some(v) = line.split('=').nth(1) {
-                    let v = v.trim().trim_matches('"').trim_matches('\'');
-                    return Some(v.to_string());
-                }
+    };
+
+    eprintln!("Downloaded {} bytes", data.len());
+
+    let dest_dir = format!("{}/{}", PKG_DIR, name);
+    fs::create_dir_all(&dest_dir).ok();
+
+    eprintln!("Extracting pkgar to {}...", dest_dir);
+
+    match extract_pkgar(&data, &dest_dir) {
+        Ok(count) => eprintln!("Successfully installed {} ({} files)", name, count),
+        Err(e) => {
+            eprintln!("Error extracting: {}", e);
+            // Save for manual extraction
+            let tmp_path = format!("/tmp/{}.pkgar", name);
+            if fs::write(&tmp_path, &data).is_ok() {
+                eprintln!("Package saved to: {}", tmp_path);
             }
         }
     }
-    None
+}
+
+/// Extract pkgar format (Redox package archive)
+fn extract_pkgar(data: &[u8], dest: &str) -> Result<usize, String> {
+    const HEADER_SIZE: usize = 136;
+    const ENTRY_SIZE: usize = 308;
+
+    if data.len() < HEADER_SIZE {
+        return Err("File too small for pkgar header".to_string());
+    }
+
+    // Parse header - skip signature/key/hash, just get count
+    let count = u64::from_le_bytes(
+        data[128..136].try_into().map_err(|_| "Invalid header")?
+    ) as usize;
+
+    eprintln!("Package has {} entries", count);
+
+    let entries_start = HEADER_SIZE;
+    let entries_end = entries_start + count * ENTRY_SIZE;
+
+    if data.len() < entries_end {
+        return Err("File truncated in entry table".to_string());
+    }
+
+    // Parse entries and extract files
+    let mut extracted = 0;
+    for i in 0..count {
+        let entry_offset = entries_start + i * ENTRY_SIZE;
+        let entry = &data[entry_offset..entry_offset + ENTRY_SIZE];
+
+        // Entry format: blake3[32] + offset[8] + size[8] + mode[4] + path[256]
+        let file_offset = u64::from_le_bytes(
+            entry[32..40].try_into().map_err(|_| "Invalid entry offset")?
+        ) as usize;
+        let file_size = u64::from_le_bytes(
+            entry[40..48].try_into().map_err(|_| "Invalid entry size")?
+        ) as usize;
+        let mode = u32::from_le_bytes(
+            entry[48..52].try_into().map_err(|_| "Invalid entry mode")?
+        );
+
+        // Extract null-terminated path
+        let path_bytes = &entry[52..308];
+        let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
+        let path = std::str::from_utf8(&path_bytes[..path_len])
+            .map_err(|_| "Invalid UTF-8 in path")?;
+
+        if path.is_empty() {
+            continue;
+        }
+
+        let full_path = format!("{}/{}", dest, path);
+
+        // Check if it's a directory (size 0 and path ends with / or mode indicates dir)
+        let is_dir = file_size == 0 && (path.ends_with('/') || (mode & 0o40000) != 0);
+
+        if is_dir {
+            fs::create_dir_all(&full_path).ok();
+        } else {
+            // Create parent directories
+            if let Some(parent) = Path::new(&full_path).parent() {
+                fs::create_dir_all(parent).ok();
+            }
+
+            // Extract file content
+            if file_offset + file_size <= data.len() {
+                let content = &data[file_offset..file_offset + file_size];
+                if let Err(e) = fs::write(&full_path, content) {
+                    eprintln!("Warning: Failed to write {}: {}", path, e);
+                    continue;
+                }
+
+                // Set executable bit if needed
+                #[cfg(unix)]
+                if (mode & 0o111) != 0 {
+                    use std::os::unix::fs::PermissionsExt;
+                    let perms = std::fs::Permissions::from_mode(mode);
+                    fs::set_permissions(&full_path, perms).ok();
+                }
+
+                extracted += 1;
+            }
+        }
+    }
+
+    Ok(extracted)
 }
 
 fn fetch_and_install(url: &str, name: &str) {
@@ -220,20 +354,17 @@ fn fetch_and_install(url: &str, name: &str) {
 
     eprintln!("Downloaded {} bytes", data.len());
 
-    // Save to temp file
     let tmp_path = format!("/tmp/{}.tar.gz", name);
     if let Err(e) = fs::write(&tmp_path, &data) {
         eprintln!("Error saving package: {}", e);
         process::exit(1);
     }
 
-    // Extract using tar crate
     let dest_dir = format!("{}/{}", PKG_DIR, name);
     fs::create_dir_all(&dest_dir).ok();
 
     eprintln!("Extracting to {}...", dest_dir);
 
-    // For now, use command line tar if available, or implement extraction
     match extract_tar_gz(&tmp_path, &dest_dir) {
         Ok(_) => {
             eprintln!("Successfully installed {}", name);
@@ -255,15 +386,12 @@ fn extract_tar_gz(archive_path: &str, dest: &str) -> Result<(), String> {
 
     let reader = BufReader::new(file);
 
-    // Check if file is gzipped by extension
     if archive_path.ends_with(".gz") {
-        // Decompress gzip first
         let decoder = GzDecoder::new(reader);
         let mut archive = tar::Archive::new(decoder);
         archive.unpack(dest)
             .map_err(|e| format!("Extraction failed: {}", e))?;
     } else {
-        // Plain tar file
         let mut archive = tar::Archive::new(reader);
         archive.unpack(dest)
             .map_err(|e| format!("Extraction failed: {}", e))?;
@@ -278,27 +406,15 @@ fn show_info(name: &str) {
     match fetch_url(&repo_url) {
         Ok(data) => {
             let content = String::from_utf8_lossy(&data);
-            let mut in_package = false;
-            let target_header = format!("[{}]", name);
+            let packages = parse_repo(&content);
 
-            for line in content.lines() {
-                if line.trim() == target_header {
-                    in_package = true;
-                    println!("Package: {}", name);
-                    continue;
+            match packages.iter().find(|(n, _)| n == name) {
+                Some((pkg_name, hash)) => {
+                    println!("Package: {}", pkg_name);
+                    println!("  Hash: {}", hash);
+                    println!("  URL: {}/{}/{}.tar.gz", PKG_SERVER, pkg_name, hash);
                 }
-                if in_package {
-                    if line.starts_with('[') {
-                        break;
-                    }
-                    if !line.trim().is_empty() {
-                        println!("  {}", line.trim());
-                    }
-                }
-            }
-
-            if !in_package {
-                eprintln!("Package '{}' not found", name);
+                None => eprintln!("Package '{}' not found", name),
             }
         }
         Err(e) => eprintln!("Error: {}", e),
@@ -314,7 +430,10 @@ fn update_repo() {
             fs::create_dir_all(PKG_DIR).ok();
 
             match fs::write(&dest, &data) {
-                Ok(_) => eprintln!("Updated package list: {} bytes", data.len()),
+                Ok(_) => {
+                    let packages = parse_repo(&String::from_utf8_lossy(&data));
+                    eprintln!("Updated package list: {} packages", packages.len());
+                }
                 Err(e) => eprintln!("Error saving repo.toml: {}", e),
             }
         }
@@ -342,7 +461,6 @@ fn main() {
                 eprintln!("Usage: pkg install <package>");
                 process::exit(1);
             }
-            // Try local first, then remote
             let pkg = &args[2];
             let local_path = format!("{}/{}.tar.gz", LOCAL_PKG, pkg);
             if Path::new(&local_path).exists() {

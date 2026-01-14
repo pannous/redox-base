@@ -999,7 +999,7 @@ checksum = "e320a6c5ad31d271ad523dcf3ad13e2767ad8b1cb8f047f75a8aeaf8da139da2"
 
 [[package]]
 name = "simple-pkg"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "flate2",
  "rustls",
@@ -1418,16 +1418,16 @@ dependencies = [
 ]
 
 [[patch.unused]]
-name = "redox-ioctl"
-version = "0.1.0"
-
-[[patch.unused]]
 name = "redox-rt"
 version = "0.1.0"
 
 [[patch.unused]]
 name = "relibc"
 version = "0.2.5"
+
+[[patch.unused]]
+name = "redox-ioctl"
+version = "0.1.0"
 
 [[patch.unused]]
 name = "redox-rt"

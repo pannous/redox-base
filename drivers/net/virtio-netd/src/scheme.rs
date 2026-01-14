@@ -88,7 +88,7 @@ impl<'a> VirtioNet<'a> {
         self.recv_head = self.rx.used.head_index();
 
         // Recycle the RX buffer back to the available ring for future packets
-        eprintln!("DEBUG: Recycling RX descriptor {} (recv_head now {})", descriptor_idx, self.recv_head);
+        log::info!("Recycling RX descriptor {} (recv_head now {})", descriptor_idx, self.recv_head);
         self.rx.recycle_descriptor(descriptor_idx as u16);
 
         copy_size

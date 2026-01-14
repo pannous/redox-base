@@ -64,7 +64,7 @@ impl Router {
                     break;
                 };
 
-                eprintln!("DEBUG: Router enqueue RX packet ({} bytes)", buf.len());
+                log::debug!("Router enqueue RX packet ({} bytes)", buf.len());
                 self.rx_buffer
                     .enqueue(buf.len(), ())
                     .expect("We checked if it was full")

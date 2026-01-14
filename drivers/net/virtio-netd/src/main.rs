@@ -143,7 +143,7 @@ fn deamon(
     }
 
     let irq_fd = irq_handle.as_raw_fd();
-    eprintln!("DEBUG: virtio-netd: IRQ fd = {}", irq_fd);
+    log::debug!("virtio-netd: IRQ fd = {}", irq_fd);
 
     // Create event queue using raw API for timeout support
     let queue_fd = unsafe { event::raw::redox_event_queue_create_v1(0) };
@@ -183,7 +183,7 @@ fn deamon(
 
     scheme.tick()?;
 
-    eprintln!("DEBUG: virtio-netd: entering polling event loop");
+    log::debug!("virtio-netd: entering polling event loop");
 
     let mut event_buf = [event::raw::RawEventV1::default()];
     let mut poll_count: u64 = 0;
@@ -216,7 +216,7 @@ fn deamon(
             let user_data = event.user_data;
 
             if user_data == Source::Irq.into_user_data() {
-                eprintln!("DEBUG: virtio-netd: IRQ event");
+                log::debug!("virtio-netd: IRQ event");
                 let mut irq = [0u8; 8];
                 let _ = irq_handle.read(&mut irq);
                 let _ = irq_handle.write(&irq);
@@ -228,7 +228,7 @@ fn deamon(
         // Poll the device even without events (for packet reception)
         poll_count += 1;
         if poll_count % 1000 == 1 {
-            eprintln!("DEBUG: virtio-netd poll #{}", poll_count);
+            log::debug!("virtio-netd poll #{}", poll_count);
         }
         scheme.tick()?;
 

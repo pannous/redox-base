@@ -7,7 +7,7 @@ use syscall::schemev2::{Opcode, Sqe};
 use syscall::{error::*, flag::*, Stat, StatVfs, TimeSpec};
 
 use crate::{
-    CallRequest, CallerCtx, Id, OpenResult, RecvFdRequest, Request, Response, SendFdRequest, Tag,
+    CallRequest, CallerCtx, Id, OpenResult, RecvFdRequest, Response, SendFdRequest, Tag,
 };
 
 pub struct OpPathLike<Flags> {

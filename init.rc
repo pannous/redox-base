@@ -24,7 +24,7 @@ vesad
 unset FRAMEBUFFER_ADDR FRAMEBUFFER_VIRT FRAMEBUFFER_WIDTH FRAMEBUFFER_HEIGHT FRAMEBUFFER_STRIDE
 #TODO: unset FRAMEBUFFER1 and beyond?
 nowait fbbootlogd
-nowait fbcond 2 # Framebuffer console - 2 virtual terminals
+nowait fbcond 1 2
 
 # Live disk
 # Note: Needs to start before drivers to ensure it gets priority when redoxfs searches for disks

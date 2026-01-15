@@ -159,14 +159,16 @@ pub unsafe fn physmap(
     }
 
     let fd = Fd::open(&path, O_CLOEXEC | mode, 0)?;
-    Ok(libredox::call::mmap(MmapArgs {
+    let result = libredox::call::mmap(MmapArgs {
         fd: fd.raw(),
         offset: base_phys as u64,
         length: len.next_multiple_of(PAGE_SIZE),
         flags: flag::MAP_SHARED,
         prot,
         addr: core::ptr::null_mut(),
-    })? as *mut ())
+    })?;
+    eprintln!("physmap: phys={:#x} len={:#x} -> mmap returned {:#x}", base_phys, len, result as usize);
+    Ok(result as *mut ())
 }
 
 impl std::fmt::Display for MemoryType {

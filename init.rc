@@ -18,13 +18,15 @@ logd
 stdio /scheme/log
 nowait ramfs logging
 
-# Graphics infrastructure
+# Graphics infrastructure - trace logging for debugging
+export RUST_LOG trace
 nowait inputd
 vesad
 unset FRAMEBUFFER_ADDR FRAMEBUFFER_VIRT FRAMEBUFFER_WIDTH FRAMEBUFFER_HEIGHT FRAMEBUFFER_STRIDE
 #TODO: unset FRAMEBUFFER1 and beyond?
 nowait fbbootlogd
 nowait fbcond 1 2
+export RUST_LOG warn
 
 # Live disk
 # Note: Needs to start before drivers to ensure it gets priority when redoxfs searches for disks

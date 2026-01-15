@@ -1,5 +1,5 @@
 # ⚠️ @claude: please update the git commit and date + time in the line below on changes ⚠️
-# Pure-Rust Redox | Build: 68f826a | 2026-01-09 15:05
+# Pure-Rust Redox | Build: fbcond | 2026-01-15 20:43
 
 # Various daemons that relibc needs to function as well as a bunch of env vars
 # that should be set for every program.
@@ -24,7 +24,7 @@ vesad
 unset FRAMEBUFFER_ADDR FRAMEBUFFER_VIRT FRAMEBUFFER_WIDTH FRAMEBUFFER_HEIGHT FRAMEBUFFER_STRIDE
 #TODO: unset FRAMEBUFFER1 and beyond?
 nowait fbbootlogd
-# nowait fbcond 2 # Disabled: crashes in nographic mode without framebuffer
+nowait fbcond 2 # Framebuffer console - 2 virtual terminals
 
 # Live disk
 # Note: Needs to start before drivers to ensure it gets priority when redoxfs searches for disks

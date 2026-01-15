@@ -1,0 +1,7 @@
+[package]
+name = "simple-file"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+infer = "0.16"

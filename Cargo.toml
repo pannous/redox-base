@@ -19,6 +19,7 @@ members = [
     "simple-ls",
     "simple-coreutils",
     "simple-pkg",
+    "simple-file",
     "curl",
     "sync",
     "test-mode",

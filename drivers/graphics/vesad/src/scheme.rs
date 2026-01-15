@@ -103,6 +103,7 @@ impl GraphicsAdapter for FbAdapter {
     }
 
     fn update_plane(&mut self, display_id: usize, framebuffer: &Self::Framebuffer, damage: Damage) {
+        eprintln!("vesad: update_plane display={} damage={:?}", display_id, damage);
         framebuffer.sync(&mut self.framebuffers[display_id], damage)
     }
 

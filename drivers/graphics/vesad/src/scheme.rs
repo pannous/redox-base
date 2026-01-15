@@ -147,6 +147,8 @@ impl FrameBuffer {
         )
         .expect("vesad: failed to map framebuffer") as *mut u32;
 
+        eprintln!("vesad: FrameBuffer phys={:#x} virt={:p} size={}", phys, virt, size);
+
         let onscreen = ptr::slice_from_raw_parts_mut(virt, size);
 
         Self {

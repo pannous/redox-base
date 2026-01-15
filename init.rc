@@ -18,8 +18,8 @@ logd
 stdio /scheme/log
 nowait ramfs logging
 
-# Graphics infrastructure - targeted trace logging
-export RUST_LOG fbcond=trace,inputd=trace,vesad=trace,display=trace
+# Graphics infrastructure - trace logging for debug
+export RUST_LOG trace
 nowait inputd
 vesad
 unset FRAMEBUFFER_ADDR FRAMEBUFFER_VIRT FRAMEBUFFER_WIDTH FRAMEBUFFER_HEIGHT FRAMEBUFFER_STRIDE

@@ -240,7 +240,13 @@ impl GraphicScreen {
         let h: usize = sync_rect.height.try_into().unwrap();
 
         let offscreen_ptr = self.ptr.as_ptr() as *mut u32;
-        let onscreen_ptr = framebuffer.onscreen as *mut u32; // FIXME use as_mut_ptr once stable
+        let onscreen_ptr = framebuffer.onscreen as *mut u32;
+
+        // Debug: check first pixel of offscreen buffer
+        let first_pixel = unsafe { *offscreen_ptr };
+        if first_pixel != 0 {
+            eprintln!("vesad: sync offscreen[0]={:#x} onscreen={:p}", first_pixel, onscreen_ptr);
+        }
 
         for row in start_y..start_y + h {
             unsafe {

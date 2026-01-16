@@ -2928,6 +2928,10 @@ name = "simple-coreutils"
 version = "0.1.0"
 
 [[package]]
+name = "simple-edit"
+version = "0.1.0"
+
+[[package]]
 name = "simple-file"
 version = "0.1.0"
 dependencies = [
@@ -3956,10 +3960,6 @@ dependencies = [
  "thiserror 1.0.69",
  "toml 0.5.11",
 ]
-
-[[package]]
-name = "xscheme-test"
-version = "0.1.0"
 
 [[package]]
 name = "zerocopy"

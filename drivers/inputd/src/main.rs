@@ -488,8 +488,18 @@ impl InputScheme {
 }
 
 fn deamon(deamon: daemon::Daemon) -> anyhow::Result<()> {
+    eprintln!("inputd: deamon() called, attempting to create :input scheme...");
     // Create the ":input" scheme.
-    let socket_file = Socket::create("input")?;
+    let socket_file = match Socket::create("input") {
+        Ok(s) => {
+            eprintln!("inputd: :input scheme created successfully");
+            s
+        }
+        Err(e) => {
+            eprintln!("inputd: FAILED to create :input scheme: {:?}", e);
+            return Err(e.into());
+        }
+    };
     let mut scheme = InputScheme::new();
 
     deamon.ready();
@@ -572,6 +582,10 @@ fn daemon_runner(daemon: daemon::Daemon) -> ! {
 }
 
 fn main() {
+    // Debug: print all arguments
+    let all_args: Vec<String> = std::env::args().collect();
+    eprintln!("inputd: started with {} args: {:?}", all_args.len(), all_args);
+
     common::setup_logging(
         "input",
         "inputd",
@@ -600,9 +614,24 @@ fn main() {
                 eprintln!("inputd: VT activated successfully");
             }
 
+            // List available keymaps (stub - keymaps are handled by ps2d)
+            "--keymaps" => {
+                eprintln!("inputd: --keymaps requested (stub)");
+                // Return "us" as the only keymap for now
+                println!("us");
+            }
+
+            // Set keymap (stub - keymaps are handled by ps2d)
+            "-K" => {
+                let keymap = args.next().unwrap_or_default();
+                eprintln!("inputd: -K {} requested (stub, not implemented)", keymap);
+                // Just exit successfully, keymap change not implemented in inputd
+            }
+
             _ => panic!("inputd: invalid argument: {}", val),
         }
     } else {
+        eprintln!("inputd: NO ARGUMENTS - starting daemon mode (this should only happen once at boot!)");
         daemon::Daemon::new(daemon_runner);
     }
 }

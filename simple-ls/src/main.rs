@@ -67,6 +67,8 @@ fn main() {
     // Parse flags
     let mut show_long = false;
     let mut show_all = false;
+    let mut sort_by_time = false;
+    let mut reverse_order = false;
     let mut paths: Vec<&str> = Vec::new();
 
     for arg in &args[1..] {
@@ -75,6 +77,9 @@ fn main() {
                 match c {
                     'l' => show_long = true,
                     'a' => show_all = true,
+                    't' => sort_by_time = true,
+                    'r' => reverse_order = true,
+                    '1' => {} // One entry per line (implied with -l)
                     _ => {}
                 }
             }
@@ -88,11 +93,21 @@ fn main() {
     }
 
     for path in paths {
-        list_path(path, show_long, show_all);
+        list_path(path, show_long, show_all, sort_by_time, reverse_order);
     }
 }
 
-fn list_path(path: &str, show_long: bool, show_all: bool) {
+struct EntryInfo {
+    name: String,
+    is_dir: bool,
+    is_symlink: bool,
+    mode: u32,
+    size: u64,
+    mtime: i64,
+    link_target: Option<String>,
+}
+
+fn list_path(path: &str, show_long: bool, show_all: bool, sort_by_time: bool, reverse_order: bool) {
     let p = Path::new(path);
 
     // Handle single file
@@ -122,31 +137,75 @@ fn list_path(path: &str, show_long: bool, show_all: bool) {
         return;
     }
 
-    // Handle directory
+    // Handle directory - collect entries first for sorting
     match fs::read_dir(path) {
         Ok(entries) => {
+            let mut entry_list: Vec<EntryInfo> = Vec::new();
+
             for entry in entries {
                 if let Ok(entry) = entry {
                     let name = entry.file_name();
-                    let name_str = name.to_string_lossy();
+                    let name_str = name.to_string_lossy().to_string();
 
                     if !show_all && name_str.starts_with('.') {
                         continue;
                     }
 
-                    if show_long {
+                    let (is_dir, is_symlink, mode, size, mtime, link_target) =
                         if let Ok(meta) = entry.metadata() {
-                            let file_type = if meta.is_dir() { "d" } else { "-" };
-                            let mode = meta.mode();
-                            let size = meta.len();
-                            let mtime = format_time(meta.mtime());
-                            println!("{}{:o} {:>8} {} {}", file_type, mode & 0o777, size, mtime, name_str);
+                            let symlink_meta = fs::symlink_metadata(entry.path()).ok();
+                            let is_symlink = symlink_meta.map(|m| m.file_type().is_symlink()).unwrap_or(false);
+                            let link_target = if is_symlink {
+                                fs::read_link(entry.path()).ok().map(|p| p.display().to_string())
+                            } else {
+                                None
+                            };
+                            (meta.is_dir(), is_symlink, meta.mode(), meta.len(), meta.mtime(), link_target)
                         } else {
-                            println!("???? {:>8} {} {}", "?", "-", name_str);
-                        }
+                            (false, false, 0, 0, 0, None)
+                        };
+
+                    entry_list.push(EntryInfo {
+                        name: name_str,
+                        is_dir,
+                        is_symlink,
+                        mode,
+                        size,
+                        mtime,
+                        link_target,
+                    });
+                }
+            }
+
+            // Sort entries
+            if sort_by_time {
+                entry_list.sort_by(|a, b| b.mtime.cmp(&a.mtime)); // Newest first by default
+            } else {
+                entry_list.sort_by(|a, b| a.name.cmp(&b.name)); // Alphabetical
+            }
+
+            if reverse_order {
+                entry_list.reverse();
+            }
+
+            // Display entries
+            for entry in &entry_list {
+                if show_long {
+                    let file_type = if entry.is_symlink {
+                        "l"
+                    } else if entry.is_dir {
+                        "d"
                     } else {
-                        print!("{}  ", name_str);
+                        "-"
+                    };
+                    let mtime_str = format_time(entry.mtime);
+                    if let Some(ref target) = entry.link_target {
+                        println!("{}{:o} {:>8} {} {} -> {}", file_type, entry.mode & 0o777, entry.size, mtime_str, entry.name, target);
+                    } else {
+                        println!("{}{:o} {:>8} {} {}", file_type, entry.mode & 0o777, entry.size, mtime_str, entry.name);
                     }
+                } else {
+                    print!("{}  ", entry.name);
                 }
             }
             if !show_long {

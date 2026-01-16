@@ -179,7 +179,14 @@ fn list_path(path: &str, show_long: bool, show_all: bool, sort_by_time: bool, re
 
             // Sort entries
             if sort_by_time {
-                entry_list.sort_by(|a, b| b.mtime.cmp(&a.mtime)); // Newest first by default
+                // Sort by time, newest first (descending mtime)
+                // Larger mtime values should come first
+                entry_list.sort_by(|a, b| {
+                    match b.mtime.cmp(&a.mtime) {
+                        std::cmp::Ordering::Equal => a.name.cmp(&b.name),
+                        other => other,
+                    }
+                });
             } else {
                 entry_list.sort_by(|a, b| a.name.cmp(&b.name)); // Alphabetical
             }

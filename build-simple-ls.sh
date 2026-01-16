@@ -32,8 +32,10 @@ cargo +${NIGHTLY} build \
     -p simple-ls
 
 echo "=== Stripping ==="
-llvm-strip -o /tmp/9p-share/ls target/aarch64-unknown-redox-clif/release/simple-ls
+SHARE_DIR="${SHARE_DIR:-/opt/other/redox/share}"
+mkdir -p "$SHARE_DIR"
+llvm-strip -o "$SHARE_DIR/ls" target/aarch64-unknown-redox-clif/release/simple-ls
 
 echo "=== Done ==="
-ls -la /tmp/9p-share/ls
-file /tmp/9p-share/ls
+ls -la "$SHARE_DIR/ls"
+file "$SHARE_DIR/ls"

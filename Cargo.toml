@@ -16,6 +16,7 @@ members = [
     "randd",
     "zerod",
     "test-9p",
+    "xscheme-test",
     "simple-ls",
     "simple-coreutils",
     "simple-pkg",

@@ -583,16 +583,21 @@ fn main() {
     let mut args = std::env::args().skip(1);
 
     if let Some(val) = args.next() {
+        eprintln!("inputd: received argument: '{}'", val);
         match val.as_ref() {
             // Activates a VT.
             "-A" => {
                 let vt = args.next().unwrap().parse::<usize>().unwrap();
+                eprintln!("inputd: activating VT {}", vt);
 
+                eprintln!("inputd: opening control handle...");
                 let mut handle =
                     inputd::ControlHandle::new().expect("inputd: failed to open display handle");
+                eprintln!("inputd: control handle opened, activating VT...");
                 handle
                     .activate_vt(vt)
                     .expect("inputd: failed to activate VT");
+                eprintln!("inputd: VT activated successfully");
             }
 
             _ => panic!("inputd: invalid argument: {}", val),

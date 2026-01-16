@@ -84,13 +84,15 @@ impl ConfigRegionAccess for Pci {
 }
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 impl ConfigRegionAccess for Pci {
-    unsafe fn read(&self, addr: PciAddress, offset: u16) -> u32 {
-        let _guard = self.lock.lock().unwrap();
-        todo!("Pci::CfgAccess::read on this architecture")
+    unsafe fn read(&self, _addr: PciAddress, _offset: u16) -> u32 {
+        // PCI 3.0 I/O port access is x86-specific and not available on this architecture.
+        // Return 0xFFFFFFFF to indicate "no device" rather than panicking.
+        // This allows graceful degradation when ECAM/MCFG is not available.
+        0xFFFFFFFF
     }
 
-    unsafe fn write(&self, addr: PciAddress, offset: u16, value: u32) {
-        let _guard = self.lock.lock().unwrap();
-        todo!("Pci::CfgAccess::write on this architecture")
+    unsafe fn write(&self, _addr: PciAddress, _offset: u16, _value: u32) {
+        // PCI 3.0 I/O port access is x86-specific and not available on this architecture.
+        // Silently ignore writes rather than panicking.
     }
 }

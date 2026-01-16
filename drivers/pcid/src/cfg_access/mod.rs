@@ -233,27 +233,65 @@ const BYTES_PER_BUS: usize = 1 << 20;
 
 impl Pcie {
     pub fn new() -> Self {
-        match Mcfg::with(Self::from_allocs) {
-            Ok(pcie) => pcie,
-            Err(acpi_error) => match locate_ecam_dtb(Self::from_allocs) {
-                Ok(pcie) => pcie,
-                Err(fdt_error) => {
-                    log::warn!(
-                        "Couldn't retrieve PCIe info, perhaps the kernel is not compiled with \
-                        acpi or device tree support? Using the PCI 3.0 configuration space \
-                        instead. ACPI error: {:?} FDT error: {:?}",
-                        acpi_error,
-                        fdt_error
-                    );
-                    Self {
-                        lock: Mutex::new(()),
-                        allocs: Vec::new(),
-                        fallback: Pci::new(),
-                        interrupt_map: Vec::new(),
-                        interrupt_map_mask: [u32::MAX, u32::MAX, u32::MAX, u32::MAX],
+        // Try ACPI MCFG with retries (acpid may not be ready immediately)
+        for attempt in 0..5 {
+            match Mcfg::with(Self::from_allocs) {
+                Ok(pcie) => return pcie,
+                Err(acpi_error) => {
+                    if attempt < 4 {
+                        log::debug!("ACPI MCFG attempt {} failed: {:?}, retrying...", attempt + 1, acpi_error);
+                        // Use spin_loop for delay since std::thread::sleep may not work reliably
+                        let start = std::time::Instant::now();
+                        while start.elapsed() < std::time::Duration::from_millis(200) {
+                            std::hint::spin_loop();
+                        }
                     }
                 }
-            },
+            }
+        }
+
+        // ACPI failed after retries, try FDT
+        match locate_ecam_dtb(Self::from_allocs) {
+            Ok(pcie) => return pcie,
+            Err(fdt_error) => {
+                log::warn!("FDT ECAM lookup failed: {:?}", fdt_error);
+            }
+        }
+
+        // Both ACPI and FDT failed - try hardcoded QEMU virt ECAM on aarch64
+        #[cfg(target_arch = "aarch64")]
+        {
+            // QEMU virt aarch64 uses HIGH ECAM at 0x4010000000 (256 buses = 256 MB)
+            // This is the highmem PCI ECAM location for virt-3.0+
+            log::warn!("ACPI and FDT failed, trying hardcoded QEMU virt HIGH ECAM at 0x4010000000");
+            let qemu_ecam = PcieAllocs(&[PcieAlloc {
+                base_addr: 0x40_1000_0000,
+                seg_group_num: 0,
+                start_bus: 0,
+                end_bus: 255,
+                _rsvd: [0; 4],
+            }]);
+            match Self::from_allocs(qemu_ecam, Vec::new(), [u32::MAX, u32::MAX, u32::MAX, u32::MAX]) {
+                Ok(pcie) => {
+                    log::info!("Successfully using hardcoded QEMU virt ECAM");
+                    return pcie;
+                }
+                Err(e) => {
+                    log::error!("Hardcoded QEMU virt ECAM failed: {:?}", e);
+                }
+            }
+        }
+
+        log::error!(
+            "Couldn't retrieve PCIe info via ACPI, FDT, or hardcoded fallback. \
+            PCI devices will not be available."
+        );
+        Self {
+            lock: Mutex::new(()),
+            allocs: Vec::new(),
+            fallback: Pci::new(),
+            interrupt_map: Vec::new(),
+            interrupt_map_mask: [u32::MAX, u32::MAX, u32::MAX, u32::MAX],
         }
     }
 

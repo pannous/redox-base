@@ -84,15 +84,23 @@ impl ConfigRegionAccess for Pci {
 }
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 impl ConfigRegionAccess for Pci {
-    unsafe fn read(&self, _addr: PciAddress, _offset: u16) -> u32 {
-        // PCI 3.0 I/O port access is x86-specific and not available on this architecture.
-        // Return 0xFFFFFFFF to indicate "no device" rather than panicking.
-        // This allows graceful degradation when ECAM/MCFG is not available.
-        0xFFFFFFFF
+    unsafe fn read(&self, addr: PciAddress, offset: u16) -> u32 {
+        // PCI 3.0 I/O port config access (0xCF8/0xCFC) is x86-specific.
+        // On ARM/aarch64, PCI config is ONLY available via memory-mapped ECAM.
+        // If we reach here, ECAM setup failed completely - this is a fatal error.
+        panic!(
+            "PCI config read at {:02x}:{:02x}.{} offset 0x{:03x}: \
+             No ECAM available. PCI 3.0 I/O ports don't exist on this architecture. \
+             Check ACPI MCFG, device tree, or hardcoded ECAM fallback.",
+            addr.bus(), addr.device(), addr.function(), offset
+        )
     }
 
-    unsafe fn write(&self, _addr: PciAddress, _offset: u16, _value: u32) {
-        // PCI 3.0 I/O port access is x86-specific and not available on this architecture.
-        // Silently ignore writes rather than panicking.
+    unsafe fn write(&self, addr: PciAddress, offset: u16, value: u32) {
+        panic!(
+            "PCI config write at {:02x}:{:02x}.{} offset 0x{:03x} value 0x{:08x}: \
+             No ECAM available. PCI 3.0 I/O ports don't exist on this architecture.",
+            addr.bus(), addr.device(), addr.function(), offset, value
+        )
     }
 }

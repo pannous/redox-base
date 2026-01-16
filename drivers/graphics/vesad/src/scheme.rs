@@ -103,7 +103,6 @@ impl GraphicsAdapter for FbAdapter {
     }
 
     fn update_plane(&mut self, display_id: usize, framebuffer: &Self::Framebuffer, damage: Damage) {
-        eprintln!("vesad: update_plane display={} damage={:?}", display_id, damage);
         framebuffer.sync(&mut self.framebuffers[display_id], damage)
     }
 
@@ -136,6 +135,13 @@ pub struct FrameBuffer {
 impl FrameBuffer {
     pub unsafe fn new(phys: usize, width: usize, height: usize, stride: usize) -> Self {
         let size = stride * height;
+
+        // Use DeviceMemory on aarch64 since WriteCombining isn't implemented there
+        #[cfg(target_arch = "aarch64")]
+        let memory_type = common::MemoryType::DeviceMemory;
+        #[cfg(not(target_arch = "aarch64"))]
+        let memory_type = common::MemoryType::WriteCombining;
+
         let virt = common::physmap(
             phys,
             size * 4,
@@ -143,7 +149,7 @@ impl FrameBuffer {
                 read: true,
                 write: true,
             },
-            common::MemoryType::WriteCombining,
+            memory_type,
         )
         .expect("vesad: failed to map framebuffer") as *mut u32;
 
@@ -244,53 +250,6 @@ impl GraphicScreen {
         let offscreen_ptr = self.ptr.as_ptr() as *mut u32;
         let onscreen_ptr = framebuffer.onscreen as *mut u32;
 
-        // Debug: scan for any non-black pixels in the damage region
-        let mut non_black_count = 0u32;
-        let mut first_non_black = 0u32;
-        let total_pixels = w * h;
-        for row in start_y..start_y + h {
-            for col in start_x..start_x + w {
-                let pixel = unsafe { *offscreen_ptr.add(row * self.width + col) };
-                // Check if pixel is not black (ignoring alpha)
-                if (pixel & 0x00FFFFFF) != 0 {
-                    non_black_count += 1;
-                    if first_non_black == 0 {
-                        first_non_black = pixel;
-                    }
-                }
-            }
-        }
-        if non_black_count > 0 {
-            eprintln!("vesad: sync has {} non-black pixels (first={:#x}) of {} total",
-                     non_black_count, first_non_black, total_pixels);
-        } else {
-            // Only log occasionally to reduce spam
-            static mut LOG_COUNT: u32 = 0;
-            unsafe {
-                LOG_COUNT += 1;
-                if LOG_COUNT % 100 == 1 {
-                    eprintln!("vesad: sync all-black frame #{}", LOG_COUNT);
-                }
-            }
-        }
-
-        // Debug: find first non-black pixel and check if it was copied correctly
-        let mut first_nonblack_offset: Option<usize> = None;
-        let mut first_nonblack_val = 0u32;
-        if non_black_count > 0 {
-            'outer: for row in start_y..start_y + h {
-                for col in start_x..start_x + w {
-                    let off_idx = row * self.width + col;
-                    let pixel = unsafe { *offscreen_ptr.add(off_idx) };
-                    if (pixel & 0x00FFFFFF) != 0 {
-                        first_nonblack_offset = Some(row * framebuffer.stride + col);
-                        first_nonblack_val = pixel;
-                        break 'outer;
-                    }
-                }
-            }
-        }
-
         for row in start_y..start_y + h {
             unsafe {
                 ptr::copy(
@@ -301,15 +260,10 @@ impl GraphicScreen {
             }
         }
 
-        // Debug: verify first non-black pixel was copied
-        if let Some(on_offset) = first_nonblack_offset {
-            let after_onscreen = unsafe { *onscreen_ptr.add(on_offset) };
-            if after_onscreen == first_nonblack_val {
-                eprintln!("vesad: OK! non-black {:#x} at {} copied correctly", first_nonblack_val, on_offset);
-            } else {
-                eprintln!("vesad: FAIL! offscreen={:#x} onscreen={:#x} at {}",
-                         first_nonblack_val, after_onscreen, on_offset);
-            }
+        // aarch64: Ensure writes to device memory are visible to external devices
+        #[cfg(target_arch = "aarch64")]
+        unsafe {
+            core::arch::asm!("dsb sy", options(nostack, preserves_flags));
         }
     }
 }

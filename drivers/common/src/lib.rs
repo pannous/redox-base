@@ -167,7 +167,6 @@ pub unsafe fn physmap(
         prot,
         addr: core::ptr::null_mut(),
     })?;
-    eprintln!("physmap: phys={:#x} len={:#x} -> mmap returned {:#x}", base_phys, len, result as usize);
     Ok(result as *mut ())
 }
 

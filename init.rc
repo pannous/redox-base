@@ -18,22 +18,25 @@ logd
 stdio /scheme/log
 nowait ramfs logging
 
-# Graphics infrastructure - trace logging for debug
+# Graphics infrastructure
 export RUST_LOG warn
 nowait inputd
+
+# Start vesad for ramfb (boot framebuffer) mode - exits quickly if no framebuffer
 vesad
 unset FRAMEBUFFER_ADDR FRAMEBUFFER_VIRT FRAMEBUFFER_WIDTH FRAMEBUFFER_HEIGHT FRAMEBUFFER_STRIDE
-#TODO: unset FRAMEBUFFER1 and beyond?
-nowait fbbootlogd
-nowait fbcond 1 2
-export RUST_LOG warn
 
-# Live disk
-# Note: Needs to start before drivers to ensure it gets priority when redoxfs searches for disks
+# Live disk - needs priority before drivers search for disks
 nowait lived
 
-# Drivers
+# Drivers (includes PCI driver spawner which starts virtio-gpu if present)
+# Must run BEFORE fbbootlogd/fbcond so virtio-gpu display scheme exists
 run /scheme/initfs/etc/init_drivers.rc
+
+# Now start graphics console daemons (display scheme should exist by now)
+export RUST_LOG warn
+nowait fbbootlogd
+nowait fbcond 1 2
 unset RSDP_ADDR RSDP_SIZE
 
 # Mount rootfs

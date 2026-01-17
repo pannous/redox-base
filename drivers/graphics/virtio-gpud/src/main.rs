@@ -485,9 +485,6 @@ fn daemon_runner(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
 }
 
 fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow::Result<()> {
-    // Immediate output before any other initialization
-    eprintln!("virtio-gpud: STARTED - before setup_logging");
-
     common::setup_logging(
         "graphics",
         "pci",
@@ -495,57 +492,33 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
         common::output_level(),
         common::file_level(),
     );
-    eprintln!("virtio-gpud: after setup_logging");
 
-    // Double check that we have the right device.
-    //
-    // 0x1050 - virtio-gpu
-    eprintln!("virtio-gpud: getting pci_config");
+    // Double check that we have the right device (0x1050 = virtio-gpu)
     let pci_config = pcid_handle.config();
-    eprintln!("virtio-gpud: got pci_config, device_id={:04x}", pci_config.func.full_device_id.device_id);
-
     assert_eq!(pci_config.func.full_device_id.device_id, 0x1050);
-    eprintln!("virtio-gpu: [1] startup begin");
-    log::warn!("virtio-gpu: initiating startup sequence :^)");
-    eprintln!("virtio-gpu: [2] calling probe_device");
-    log::warn!("virtio-gpu: calling probe_device...");
+    log::info!("virtio-gpu: initiating startup sequence");
 
     let device = DEVICE.try_call_once(|| virtio_core::probe_device(&mut pcid_handle))?;
-    eprintln!("virtio-gpu: [3] probe_device succeeded");
-    log::info!("virtio-gpu: probe_device succeeded");
     let config = unsafe { &mut *(device.device_space as *mut GpuConfig) };
-    eprintln!("virtio-gpu: [4] got config");
 
-    // Negotiate features.
-    // DISABLED EDID for debugging - crashes suspected in EDID handling
-    let has_edid = false; // device.transport.check_device_feature(VIRTIO_GPU_F_EDID);
-    // if has_edid {
-    //     device.transport.ack_driver_feature(VIRTIO_GPU_F_EDID);
-    // }
+    // Negotiate features (EDID disabled for now)
+    let has_edid = false;
     device.transport.finalize_features();
-    eprintln!("virtio-gpu: [5] features negotiated, edid={} (DISABLED)", has_edid);
 
-    // Queue for sending control commands.
+    // Queue for sending control commands
     let control_queue = device
         .transport
         .setup_queue(MSIX_PRIMARY_VECTOR, &device.irq_handle)?;
-    eprintln!("virtio-gpu: [6] control queue setup");
 
-    // Queue for sending cursor updates.
+    // Queue for sending cursor updates
     let cursor_queue = device
         .transport
         .setup_queue(MSIX_PRIMARY_VECTOR, &device.irq_handle)?;
-    eprintln!("virtio-gpu: [7] cursor queue setup");
 
     device.transport.setup_config_notify(MSIX_PRIMARY_VECTOR);
-    eprintln!("virtio-gpu: [8] config notify setup");
-
     device.transport.run_device();
-    eprintln!("virtio-gpu: [9] device running");
-    deamon.ready();
-    eprintln!("virtio-gpu: [10] daemon ready");
 
-    eprintln!("virtio-gpu: [11] calling GpuScheme::new()");
+    // Create the display scheme BEFORE signaling ready, so fbbootlogd/fbcond can find it
     let (mut scheme, mut inputd_handle) = scheme::GpuScheme::new(
         config,
         control_queue.clone(),
@@ -553,6 +526,9 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
         device.transport.clone(),
         has_edid,
     )?;
+
+    // Now signal that the daemon is ready (display scheme exists)
+    deamon.ready();
 
     user_data! {
         enum Source {

@@ -25,6 +25,6 @@ cargo +${NIGHTLY} build \
     -Zbuild-std-features=compiler_builtins/no-f16-f128
 
 echo "=== Stripping ==="
-llvm-strip -o /opt/other/redox/share/curl target/aarch64-unknown-redox-clif/release/curl
+llvm-strip -o /opt/other/redox/share/curl ../target/aarch64-unknown-redox-clif/release/curl
 ls -la /opt/other/redox/share/curl
 echo "Done - curl is at /opt/other/redox/share/curl"

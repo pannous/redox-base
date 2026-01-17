@@ -186,6 +186,8 @@ fn do_request(
                         }
                     }
                 }
+                // Treat UnexpectedEof as normal EOF (server didn't send TLS close_notify)
+                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break,
                 Err(e) => return Err(e),
             }
         }

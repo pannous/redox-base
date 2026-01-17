@@ -24,6 +24,7 @@ use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use driver_graphics::GraphicsAdapter;
+use syscall::EventFlags;
 use event::{user_data, EventQueue};
 use pcid_interface::PciFunctionHandle;
 
@@ -556,6 +557,16 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
 
     let event_queue: EventQueue<Source> =
         EventQueue::new().expect("virtio-gpud: failed to create event queue");
+
+    // Register for EVENT_READ events from inputd - this tells inputd's scheme to notify us
+    // fevent syscall: fd, event flags -> result with current event flags
+    eprintln!("[virtio-gpud] [17a] calling fevent on inputd handle fd={}", inputd_handle.inner().as_raw_fd());
+    let fevent_result = unsafe {
+        syscall::syscall2(syscall::SYS_FEVENT, inputd_handle.inner().as_raw_fd() as usize, EventFlags::EVENT_READ.bits())
+    };
+    eprintln!("[virtio-gpud] [17b] fevent returned {:?}", fevent_result);
+    fevent_result.expect("virtio-gpud: failed to register for inputd events");
+
     event_queue
         .subscribe(
             inputd_handle.inner().as_raw_fd() as usize,
@@ -579,25 +590,31 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
         .unwrap();
 
     let all = [Source::Input, Source::Scheme, Source::Interrupt];
+    eprintln!("[virtio-gpud] [17] starting event loop iteration");
     for event in all
         .into_iter()
         .chain(event_queue.map(|e| e.expect("virtio-gpud: failed to get next event").user_data))
     {
         match event {
             Source::Input => {
+                eprintln!("[virtio-gpud] EVENT: Input");
                 while let Some(vt_event) = inputd_handle
                     .read_vt_event()
                     .expect("virtio-gpud: failed to read display handle")
                 {
+                    eprintln!("[virtio-gpud] Got vt_event: {:?}", vt_event);
                     scheme.handle_vt_event(vt_event);
                 }
             }
             Source::Scheme => {
+                eprintln!("[virtio-gpud] EVENT: Scheme");
                 scheme
                     .tick()
                     .expect("virtio-gpud: failed to process scheme events");
             }
-            Source::Interrupt => loop {
+            Source::Interrupt => {
+                eprintln!("[virtio-gpud] EVENT: Interrupt");
+                loop {
                 // Read ISR to acknowledge the interrupt (required for legacy INTx on aarch64)
                 let _isr_status = device.read_isr_status();
 
@@ -624,7 +641,8 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
                 if before_gen == after_gen {
                     break;
                 }
-            },
+                } // end loop
+            }
         }
     }
 

@@ -91,10 +91,11 @@ impl InputScheme {
             return;
         }
 
-        log::debug!(
-            "switching from VT #{} to VT #{new_active}",
-            self.active_vt.unwrap_or(0)
-        );
+        eprintln!("inputd: switch_vt: switching from VT #{} to VT #{new_active}", self.active_vt.unwrap_or(0));
+        eprintln!("inputd: switch_vt: current display={:?}", self.display);
+
+        // Mark that we have new events to trigger notification to display drivers
+        self.has_new_events = true;
 
         for handle in self.handles.values_mut() {
             match handle {
@@ -104,7 +105,9 @@ impl InputScheme {
                     device,
                     ..
                 } => {
+                    eprintln!("inputd: switch_vt: checking display '{}' vs current '{:?}'", device, self.display);
                     if self.display.as_deref() == Some(&*device) {
+                        eprintln!("inputd: switch_vt: PUSHING VtActivate to display '{}'", device);
                         pending.push(VtEvent {
                             kind: VtEventKind::Activate,
                             vt: new_active,
@@ -134,10 +137,14 @@ impl SchemeSync for InputScheme {
             "producer" => Handle::Producer,
             "consumer" => {
                 let vt = self.next_vt_id.fetch_add(1, Ordering::Relaxed);
+                eprintln!("inputd: CONSUMER OPEN: vt={} active_vt={:?}", vt, self.active_vt);
                 self.vts.insert(vt);
 
                 if self.active_vt.is_none() {
+                    eprintln!("inputd: CONSUMER OPEN: calling switch_vt({})", vt);
                     self.switch_vt(vt);
+                } else {
+                    eprintln!("inputd: CONSUMER OPEN: active_vt already set, not switching");
                 }
 
                 Handle::Consumer {
@@ -453,8 +460,10 @@ impl SchemeSync for InputScheme {
             Handle::Display {
                 ref mut events,
                 ref mut notified,
+                device,
                 ..
             } => {
+                eprintln!("inputd: FEVENT for display '{}': setting events={:?}", device, flags);
                 *events = flags;
                 *notified = false;
                 Ok(EventFlags::empty())
@@ -556,13 +565,16 @@ fn deamon(deamon: daemon::Daemon) -> anyhow::Result<()> {
                     events,
                     pending,
                     ref mut notified,
+                    device,
                     ..
                 } => {
+                    eprintln!("inputd: Display {}: pending={} notified={} events={:?}", device, pending.len(), *notified, events);
                     if pending.is_empty() || *notified || !events.contains(EventFlags::EVENT_READ) {
                         continue;
                     }
 
                     // Notify the consumer that we have some events to read. Yum yum.
+                    eprintln!("inputd: NOTIFYING Display {} (id={})", device, id);
                     socket_file.write_response(
                         Response::post_fevent(*id, EventFlags::EVENT_READ.bits()),
                         SignalBehavior::Restart,

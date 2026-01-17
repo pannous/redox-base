@@ -42,10 +42,13 @@ pub struct FbconScheme {
 
 impl FbconScheme {
     pub fn new(vt_ids: &[usize], event_queue: &mut EventQueue<VtIndex>) -> FbconScheme {
+        eprintln!("fbcond: FbconScheme::new starting, vt_ids={:?}", vt_ids);
         let mut vts = BTreeMap::new();
 
         for &vt_i in vt_ids {
+            eprintln!("fbcond: opening display for vt {}", vt_i);
             let display = Display::open_new_vt().expect("Failed to open display for vt");
+            eprintln!("fbcond: display opened for vt {}", vt_i);
             event_queue
                 .subscribe(
                     display.input_handle.event_handle().as_raw_fd() as usize,

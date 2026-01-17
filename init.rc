@@ -36,6 +36,9 @@ run /scheme/initfs/etc/init_drivers.rc
 # Now start graphics console daemons (display scheme should exist by now)
 export RUST_LOG warn
 nowait fbbootlogd
+# DEBUG: check if fbcond exists
+file /scheme/initfs/bin/fbcond
+ls /scheme/initfs/bin/fbcond
 nowait fbcond 1 2
 unset RSDP_ADDR RSDP_SIZE
 

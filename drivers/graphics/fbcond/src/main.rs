@@ -16,13 +16,22 @@ mod scheme;
 mod text;
 
 fn main() {
+    // Write to a file for debugging
+    if let Ok(mut f) = std::fs::File::create("/scheme/9p.hostshare/fbcond-started.txt") {
+        use std::io::Write;
+        let _ = f.write_all(b"fbcond main() started\n");
+    }
+    println!("fbcond: main() starting");
     daemon::Daemon::new(daemon);
+    println!("fbcond: main() done (should not reach here)");
 }
 fn daemon(daemon: daemon::Daemon) -> ! {
+    println!("fbcond: daemon starting");
     let vt_ids = env::args()
         .skip(1)
         .map(|arg| arg.parse().expect("invalid vt number"))
         .collect::<Vec<_>>();
+    eprintln!("fbcond: vt_ids={:?}", vt_ids);
 
     common::setup_logging(
         "graphics",

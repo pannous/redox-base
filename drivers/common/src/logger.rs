@@ -17,8 +17,8 @@ pub fn output_level() -> log::LevelFilter {
 }
 
 pub fn file_level() -> log::LevelFilter {
-    // File logging always at Info level for debugging
-    log::LevelFilter::Info
+    // File logging at Debug level for troubleshooting
+    log::LevelFilter::Debug
 }
 
 /// Configures logging for a single driver.

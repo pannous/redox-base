@@ -499,10 +499,16 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
     let pci_config = pcid_handle.config();
 
     assert_eq!(pci_config.func.full_device_id.device_id, 0x1050);
-    log::info!("virtio-gpu: initiating startup sequence :^)");
+    eprintln!("virtio-gpu: [1] startup begin");
+    log::warn!("virtio-gpu: initiating startup sequence :^)");
+    eprintln!("virtio-gpu: [2] calling probe_device");
+    log::warn!("virtio-gpu: calling probe_device...");
 
     let device = DEVICE.try_call_once(|| virtio_core::probe_device(&mut pcid_handle))?;
+    eprintln!("virtio-gpu: [3] probe_device succeeded");
+    log::info!("virtio-gpu: probe_device succeeded");
     let config = unsafe { &mut *(device.device_space as *mut GpuConfig) };
+    eprintln!("virtio-gpu: [4] got config");
 
     // Negotiate features.
     let has_edid = device.transport.check_device_feature(VIRTIO_GPU_F_EDID);
@@ -510,21 +516,27 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
         device.transport.ack_driver_feature(VIRTIO_GPU_F_EDID);
     }
     device.transport.finalize_features();
+    eprintln!("virtio-gpu: [5] features negotiated, edid={}", has_edid);
 
     // Queue for sending control commands.
     let control_queue = device
         .transport
         .setup_queue(MSIX_PRIMARY_VECTOR, &device.irq_handle)?;
+    eprintln!("virtio-gpu: [6] control queue setup");
 
     // Queue for sending cursor updates.
     let cursor_queue = device
         .transport
         .setup_queue(MSIX_PRIMARY_VECTOR, &device.irq_handle)?;
+    eprintln!("virtio-gpu: [7] cursor queue setup");
 
     device.transport.setup_config_notify(MSIX_PRIMARY_VECTOR);
+    eprintln!("virtio-gpu: [8] config notify setup");
 
     device.transport.run_device();
+    eprintln!("virtio-gpu: [9] device running");
     deamon.ready();
+    eprintln!("virtio-gpu: [10] daemon ready");
 
     let (mut scheme, mut inputd_handle) = scheme::GpuScheme::new(
         config,

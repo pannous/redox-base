@@ -274,6 +274,10 @@ fn resolve_redirect(base_url: &UrlParts, location: &str) -> Option<UrlParts> {
 }
 
 fn main() {
+    // Check if invoked as "wget" - if so, default to save-to-file mode
+    let prog = env::args().next().unwrap_or_default();
+    let wget_mode = prog.rsplit('/').next().unwrap_or("") == "wget";
+
     let args: Vec<String> = env::args().skip(1).collect();
 
     if args.is_empty() {
@@ -284,9 +288,9 @@ fn main() {
     let mut url_str = None;
     let mut verbose = false;
     let mut headers_only = false;
-    let mut follow_redirects = false;
+    let mut follow_redirects = wget_mode;  // wget follows redirects by default
     let mut output_file: Option<String> = None;
-    let mut remote_name = false;
+    let mut remote_name = wget_mode;       // wget saves to file by default
     let mut silent = false;
 
     let mut i = 0;

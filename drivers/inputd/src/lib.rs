@@ -83,6 +83,10 @@ impl ConsumerHandle {
         let fd = self.0.as_raw_fd();
         Self::debug_marker(b'2'); // V2 = about to call fpath
         let written = libredox::call::fpath(fd as usize, &mut buffer)?;
+        // Try to write the raw path to a file right after fpath
+        if let Ok(s) = std::str::from_utf8(&buffer[..written]) {
+            let _ = std::fs::write("/scheme/9p.hostshare/fpath-raw.txt", s.as_bytes());
+        }
         Self::debug_marker(b'3'); // V3 = fpath returned
 
         assert!(written <= buffer.len());
@@ -97,10 +101,8 @@ impl ConsumerHandle {
             display_path.file_name().unwrap().to_str().unwrap()
         ));
         let display_path = display_path.to_str().unwrap();
-        // Write the path to debug console - use simple writes to avoid allocation issues
-        let _ = std::fs::write("/scheme/debug/no-preserve", b"PA:");
-        let _ = std::fs::write("/scheme/debug/no-preserve", display_path.as_bytes());
-        let _ = std::fs::write("/scheme/debug/no-preserve", b"\n");
+        // Write the path to a file for debugging
+        let _ = std::fs::write("/scheme/9p.hostshare/display-path.txt", display_path.as_bytes());
         Self::debug_marker(b'4'); // V4 = about to open display
 
         let display_file =

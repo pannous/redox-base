@@ -582,6 +582,9 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
                     .expect("virtio-gpud: failed to process scheme events");
             }
             Source::Interrupt => loop {
+                // Read ISR to acknowledge the interrupt (required for legacy INTx on aarch64)
+                let isr_status = device.read_isr_status();
+
                 let before_gen = device.transport.config_generation();
 
                 let events = scheme.adapter().config.events_read.get();

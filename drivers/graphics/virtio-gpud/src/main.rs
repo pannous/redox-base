@@ -630,7 +630,9 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
     }
 
     eprintln!("[virtio-gpud] [18] Initial events done, entering main event loop");
+    let _ = std::fs::write("/scheme/debug/no-preserve", b"EQ\n"); // EQ = entering event queue
     for event_result in event_queue {
+        let _ = std::fs::write("/scheme/debug/no-preserve", b"EV\n"); // EV = got event
         let event = event_result.expect("virtio-gpud: failed to get next event");
         let source: Source = event.user_data;
         event_count += 1;

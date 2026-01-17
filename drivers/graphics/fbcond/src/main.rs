@@ -16,11 +16,19 @@ mod scheme;
 mod text;
 
 fn main() {
+    // Very early debug using raw syscall to stderr (fd 2)
+    let msg = b"[fbcond] VERY EARLY: main() entered\n";
+    let _ = unsafe { libredox::call::write(2, msg) };
+
     // Write to a file for debugging
     if let Ok(mut f) = std::fs::File::create("/scheme/9p.hostshare/fbcond-started.txt") {
         use std::io::Write;
         let _ = f.write_all(b"fbcond main() started\n");
     }
+
+    let msg2 = b"[fbcond] About to call Daemon::new\n";
+    let _ = unsafe { libredox::call::write(2, msg2) };
+
     println!("fbcond: main() starting");
     daemon::Daemon::new(daemon);
     println!("fbcond: main() done (should not reach here)");

@@ -574,9 +574,17 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
             event::EventFlags::READ,
         )
         .unwrap();
+    // Also register fevent for scheme socket explicitly
+    let scheme_fd = scheme.event_handle().raw();
+    eprintln!("[virtio-gpud] [17c] registering fevent for scheme socket fd={}", scheme_fd);
+    let scheme_fevent_result = unsafe {
+        syscall::syscall2(syscall::SYS_FEVENT, scheme_fd as usize, EventFlags::EVENT_READ.bits())
+    };
+    eprintln!("[virtio-gpud] [17d] scheme fevent returned {:?}", scheme_fevent_result);
+
     event_queue
         .subscribe(
-            scheme.event_handle().raw(),
+            scheme_fd as usize,
             Source::Scheme,
             event::EventFlags::READ,
         )
@@ -591,11 +599,43 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
 
     let all = [Source::Input, Source::Scheme, Source::Interrupt];
     eprintln!("[virtio-gpud] [17] starting event loop iteration");
-    for event in all
-        .into_iter()
-        .chain(event_queue.map(|e| e.expect("virtio-gpud: failed to get next event").user_data))
-    {
-        match event {
+    let mut event_count = 0usize;
+
+    // Process initial events first
+    for source in all {
+        event_count += 1;
+        eprintln!("[virtio-gpud] *** Initial event #{} ({:?})", event_count, source);
+        match source {
+            Source::Input => {
+                eprintln!("[virtio-gpud] EVENT: Input");
+                while let Some(vt_event) = inputd_handle
+                    .read_vt_event()
+                    .expect("virtio-gpud: failed to read display handle")
+                {
+                    eprintln!("[virtio-gpud] Got vt_event: {:?}", vt_event);
+                    scheme.handle_vt_event(vt_event);
+                }
+            }
+            Source::Scheme => {
+                eprintln!("[virtio-gpud] EVENT: Scheme");
+                scheme
+                    .tick()
+                    .expect("virtio-gpud: failed to process scheme events");
+            }
+            Source::Interrupt => {
+                eprintln!("[virtio-gpud] EVENT: Interrupt");
+                // Process interrupt inline
+            }
+        }
+    }
+
+    eprintln!("[virtio-gpud] [18] Initial events done, entering main event loop");
+    for event_result in event_queue {
+        let event = event_result.expect("virtio-gpud: failed to get next event");
+        let source: Source = event.user_data;
+        event_count += 1;
+        eprintln!("[virtio-gpud] *** Event #{} received ({:?})", event_count, source);
+        match source {
             Source::Input => {
                 eprintln!("[virtio-gpud] EVENT: Input");
                 while let Some(vt_event) = inputd_handle

@@ -54,9 +54,11 @@ pub const fn queue_part_sizes(queue_size: usize) -> (usize, usize, usize) {
     )
 }
 
-pub fn spawn_irq_thread(irq_handle: &File, queue: &Arc<Queue<'static>>) {
+pub fn spawn_irq_thread(irq_handle: &File, queue: &Arc<Queue<'static>>, isr_status: Option<*const u8>) {
     let irq_fd = irq_handle.as_raw_fd();
     let queue_copy = queue.clone();
+    // Convert pointer to usize for Send-safety across thread boundary
+    let isr_addr = isr_status.map(|p| p as usize);
 
     std::thread::spawn(move || {
         let event_queue = RawEventQueue::new().unwrap();
@@ -66,6 +68,12 @@ pub fn spawn_irq_thread(irq_handle: &File, queue: &Arc<Queue<'static>>) {
             .unwrap();
 
         for _event in event_queue.map(Result::unwrap) {
+            // For legacy INTx interrupts (aarch64), read ISR to acknowledge the interrupt.
+            // This clears the interrupt line so it can fire again.
+            if let Some(isr) = isr_addr {
+                unsafe { core::ptr::read_volatile(isr as *const u8) };
+            }
+
             // Wake up the tasks waiting on the queue.
             for (_, task) in queue_copy.waker.lock().unwrap().iter() {
                 task.wake_by_ref();
@@ -608,6 +616,8 @@ pub struct StandardTransport<'a> {
     notify: *const u8,
     notify_mul: u32,
     device_space: *const u8,
+    /// ISR status register address (for legacy interrupt acknowledgment on aarch64)
+    isr_status: Option<*const u8>,
 
     queue_index: AtomicU16,
 }
@@ -618,14 +628,16 @@ impl<'a> StandardTransport<'a> {
         notify: *const u8,
         notify_mul: u32,
         device_space: *const u8,
+        isr_status: Option<*const u8>,
     ) -> Arc<Self> {
         Arc::new(Self {
             common: Mutex::new(common),
             notify,
             notify_mul,
+            device_space,
+            isr_status,
 
             queue_index: AtomicU16::new(0),
-            device_space,
         })
     }
 }
@@ -746,7 +758,7 @@ impl Transport for StandardTransport<'_> {
             vector,
         );
 
-        spawn_irq_thread(irq_handle, &queue);
+        spawn_irq_thread(irq_handle, &queue, self.isr_status);
         Ok(queue)
     }
 

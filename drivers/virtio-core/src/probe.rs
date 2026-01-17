@@ -172,6 +172,7 @@ pub fn probe_device(pcid_handle: &mut PciFunctionHandle) -> Result<Device, Error
         notify_addr as *const u8,
         notify_multiplier,
         device_space,
+        isr_addr.map(|a| a as *const u8),
     );
 
     // Setup interrupts.

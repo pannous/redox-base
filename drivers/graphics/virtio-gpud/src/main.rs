@@ -583,7 +583,7 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
             }
             Source::Interrupt => loop {
                 // Read ISR to acknowledge the interrupt (required for legacy INTx on aarch64)
-                let isr_status = device.read_isr_status();
+                let _isr_status = device.read_isr_status();
 
                 let before_gen = device.transport.config_generation();
 

@@ -95,42 +95,56 @@ impl<'a> Future for PendingRequest<'a> {
             .unwrap()
             .insert(self.first_descriptor, cx.waker().clone());
 
-        let used_head = self.queue.used.head_index();
-
-        if used_head == self.queue.used_head.load(Ordering::SeqCst) {
-            // No new requests have been completed.
-            return Poll::Pending;
+        // Memory barrier to ensure device writes to used ring are visible on aarch64
+        #[cfg(target_arch = "aarch64")]
+        unsafe {
+            core::arch::asm!("dsb sy", options(nostack, preserves_flags));
         }
 
-        let used_element = self.queue.used.get_element_at((used_head - 1) as usize);
-        let written = used_element.written.get();
+        // Spin-poll a few times before giving up - device may complete quickly
+        for _ in 0..1000 {
+            std::sync::atomic::compiler_fence(Ordering::SeqCst);
+            // Read through black_box to prevent compiler from optimizing away the read
+            let used_head = std::hint::black_box(self.queue.used.head_index());
+            let stored = std::hint::black_box(self.queue.used_head.load(Ordering::SeqCst));
+            if used_head != stored {
+                // Found completion, check if it's our request
+                let used_element = self.queue.used.get_element_at((used_head - 1) as usize);
+                let written = used_element.written.get();
+                let mut table_index = used_element.table_index.get();
 
-        let mut table_index = used_element.table_index.get();
+                if table_index == self.first_descriptor {
+                    // The request has been completed; recycle the descriptors used.
+                    while self.queue.descriptor[table_index as usize]
+                        .flags()
+                        .contains(DescriptorFlags::NEXT)
+                    {
+                        let next_index = self.queue.descriptor[table_index as usize].next();
+                        self.queue.descriptor_stack.push(table_index as u16);
+                        table_index = next_index.into();
+                    }
 
-        if table_index == self.first_descriptor {
-            // The request has been completed; recycle the descriptors used.
-            while self.queue.descriptor[table_index as usize]
-                .flags()
-                .contains(DescriptorFlags::NEXT)
-            {
-                let next_index = self.queue.descriptor[table_index as usize].next();
-                self.queue.descriptor_stack.push(table_index as u16);
-                table_index = next_index.into();
+                    // Push the last descriptor.
+                    self.queue.descriptor_stack.push(table_index as u16);
+                    self.queue
+                        .waker
+                        .lock()
+                        .unwrap()
+                        .remove(&self.first_descriptor);
+
+                    self.queue.used_head.store(used_head, Ordering::SeqCst);
+                    return Poll::Ready(written);
+                }
             }
-
-            // Push the last descriptor.
-            self.queue.descriptor_stack.push(table_index as u16);
-            self.queue
-                .waker
-                .lock()
-                .unwrap()
-                .remove(&self.first_descriptor);
-
-            self.queue.used_head.store(used_head, Ordering::SeqCst);
-            return Poll::Ready(written);
-        } else {
-            return Poll::Pending;
+            // Small spin delay
+            for _ in 0..100 {
+                core::hint::spin_loop();
+            }
         }
+
+        // Still no completion after spinning, return Pending
+        std::thread::yield_now();
+        Poll::Pending
     }
 }
 
@@ -272,6 +286,14 @@ impl<'a> Queue<'a> {
             .set_table_index(first_descriptor as u16);
 
         self.available.set_head_idx(index as u16 + 1);
+
+        // Memory barrier to ensure descriptor and available ring writes are visible
+        // to the device before we ring the notification bell (aarch64)
+        #[cfg(target_arch = "aarch64")]
+        unsafe {
+            core::arch::asm!("dsb sy", options(nostack, preserves_flags));
+        }
+
         self.notification_bell.ring(self.queue_index);
 
         Some(PendingRequest {

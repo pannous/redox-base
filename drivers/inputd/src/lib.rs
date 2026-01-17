@@ -83,10 +83,9 @@ impl ConsumerHandle {
         let fd = self.0.as_raw_fd();
         Self::debug_marker(b'2'); // V2 = about to call fpath
         let written = libredox::call::fpath(fd as usize, &mut buffer)?;
-        // Try to write the raw path to a file right after fpath
-        if let Ok(s) = std::str::from_utf8(&buffer[..written]) {
-            let _ = std::fs::write("/scheme/9p.hostshare/fpath-raw.txt", s.as_bytes());
-        }
+        // Write the path length to debug console (single digit for simplicity)
+        let len_digit = if written < 10 { b'0' + written as u8 } else if written < 100 { b'L' } else { b'X' };
+        let _ = std::fs::write("/scheme/debug/no-preserve", &[b'W', len_digit, b'\n']);
         Self::debug_marker(b'3'); // V3 = fpath returned
 
         assert!(written <= buffer.len());

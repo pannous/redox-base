@@ -375,16 +375,20 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
     }
 
     fn create_dumb_framebuffer(&mut self, width: u32, height: u32) -> Self::Framebuffer {
+        eprintln!("[virtio-gpud] create_dumb_framebuffer: {}x{}", width, height);
         futures::executor::block_on(async {
             let bpp = 32;
             let fb_size = width as usize * height as usize * bpp / 8;
+            eprintln!("[virtio-gpud] allocating SGL for {} bytes", fb_size);
             let sgl = sgl::Sgl::new(fb_size).unwrap();
+            eprintln!("[virtio-gpud] SGL allocated at {:p}", sgl.as_ptr());
 
             unsafe {
                 core::ptr::write_bytes(sgl.as_ptr() as *mut u8, 255, fb_size);
             }
 
             let res_id = ResourceId::alloc();
+            eprintln!("[virtio-gpud] ResourceCreate2d with id={:?}", res_id);
 
             // Create a host resource using `VIRTIO_GPU_CMD_RESOURCE_CREATE_2D`.
             let request = Dma::new(ResourceCreate2d::new(
@@ -440,7 +444,10 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
     }
 
     fn update_plane(&mut self, display_id: usize, framebuffer: &Self::Framebuffer, damage: Damage) {
+        eprintln!("[virtio-gpud] update_plane called: display={}, fb_id={:?}, {}x{}",
+            display_id, framebuffer.id, framebuffer.width, framebuffer.height);
         futures::executor::block_on(async {
+            eprintln!("[virtio-gpud] XferToHost2d...");
             let req = Dma::new(XferToHost2d::new(
                 framebuffer.id,
                 GpuRect {
@@ -453,10 +460,12 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
             ))
             .unwrap();
             let header = self.send_request(req).await.unwrap();
+            eprintln!("[virtio-gpud] XferToHost2d response: {:?}", header.ty);
             assert_eq!(header.ty, CommandTy::RespOkNodata);
 
             // FIXME once we support resizing we also need to check that the current and target size match
             if self.displays[display_id].active_resource != Some(framebuffer.id) {
+                eprintln!("[virtio-gpud] SetScanout (new resource)...");
                 let scanout_request = Dma::new(SetScanout::new(
                     display_id as u32,
                     framebuffer.id,
@@ -464,16 +473,20 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
                 ))
                 .unwrap();
                 let header = self.send_request(scanout_request).await.unwrap();
+                eprintln!("[virtio-gpud] SetScanout response: {:?}", header.ty);
                 assert_eq!(header.ty, CommandTy::RespOkNodata);
                 self.displays[display_id].active_resource = Some(framebuffer.id);
             }
 
+            eprintln!("[virtio-gpud] ResourceFlush...");
             let flush = ResourceFlush::new(
                 framebuffer.id,
                 damage.clip(framebuffer.width, framebuffer.height).into(),
             );
             let header = self.send_request(Dma::new(flush).unwrap()).await.unwrap();
+            eprintln!("[virtio-gpud] ResourceFlush response: {:?}", header.ty);
             assert_eq!(header.ty, CommandTy::RespOkNodata);
+            eprintln!("[virtio-gpud] update_plane done");
         });
     }
 
@@ -584,8 +597,11 @@ impl<'a> GpuScheme {
             displays: vec![],
         };
 
+        eprintln!("[virtio-gpud] Creating GraphicsScheme...");
         let scheme = GraphicsScheme::new(adapter, "display.virtio-gpu".to_owned());
+        eprintln!("[virtio-gpud] GraphicsScheme created, registering with inputd...");
         let handle = DisplayHandle::new("virtio-gpu").unwrap();
+        eprintln!("[virtio-gpud] Registered with inputd");
         Ok((scheme, handle))
     }
 }

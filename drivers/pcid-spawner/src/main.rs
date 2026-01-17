@@ -17,11 +17,20 @@ fn busy_wait_ms(ms: u64) {
 
 fn wait_for_scheme(path: &str, max_retries: u32, _delay_ms: u64) -> Result<fs::ReadDir> {
     // Wait up to 30 seconds with 100 retries of 300ms each
+    // Also wait for directory to have at least one entry
     for i in 0..100 {
         match fs::read_dir(path) {
             Ok(dir) => {
-                eprintln!("pcid-spawner: found {} after {} attempts", path, i + 1);
-                return Ok(dir);
+                // Peek to see if there are any entries
+                let entries: Vec<_> = dir.collect();
+                let count = entries.len();
+                if count > 0 {
+                    eprintln!("pcid-spawner: found {} with {} devices after {} attempts", path, count, i + 1);
+                    // Return a new iterator since we consumed the original
+                    return fs::read_dir(path).map_err(Into::into);
+                }
+                eprintln!("pcid-spawner: {} exists but empty, retrying (attempt {})", path, i + 1);
+                busy_wait_ms(300);
             }
             Err(_e) => {
                 if i % 10 == 0 {
@@ -36,7 +45,7 @@ fn wait_for_scheme(path: &str, max_retries: u32, _delay_ms: u64) -> Result<fs::R
 }
 
 fn main() -> Result<()> {
-    eprintln!("pcid-spawner: starting");
+    eprintln!("pcid-spawner: starting [BUILD-2026-01-17-A]");
 
     let mut args = pico_args::Arguments::from_env();
     let config_path = args
@@ -70,16 +79,19 @@ fn main() -> Result<()> {
 
     eprintln!("pcid-spawner: waiting for /scheme/pci");
     // Wait for pcid to register the pci scheme (workaround for race condition)
-    for entry in wait_for_scheme("/scheme/pci", 50, 100)? {
+    let dir_iter = wait_for_scheme("/scheme/pci", 50, 100)?;
+    eprintln!("pcid-spawner: starting device enumeration");
+    for entry in dir_iter {
         let entry = entry.context("failed to get entry")?;
         let device_path = entry.path();
         log::trace!("ENTRY: {}", device_path.to_string_lossy());
 
+        eprintln!("pcid-spawner: trying {}", device_path.display());
         let mut handle = match PciFunctionHandle::connect_by_path(&device_path) {
             Ok(handle) => handle,
             Err(err) => {
                 // Either the device is gone or it is already in-use by a driver.
-                log::debug!(
+                eprintln!(
                     "pcid-spawner: {} already in use: {err}",
                     device_path.display(),
                 );
@@ -89,10 +101,12 @@ fn main() -> Result<()> {
 
         let full_device_id = handle.config().func.full_device_id;
 
-        log::debug!(
-            "pcid-spawner enumerated: PCI {} {}",
+        eprintln!(
+            "pcid-spawner: PCI {} vendor={:04x} device={:04x} class={:02x}",
             handle.config().func.addr,
-            full_device_id.display()
+            full_device_id.vendor_id,
+            full_device_id.device_id,
+            full_device_id.class
         );
 
         let Some(driver) = config
@@ -100,9 +114,10 @@ fn main() -> Result<()> {
             .iter()
             .find(|driver| driver.match_function(&full_device_id))
         else {
-            log::debug!("no driver for {}, continuing", handle.config().func.addr);
+            eprintln!("pcid-spawner: no driver for {:04x}:{:04x}", full_device_id.vendor_id, full_device_id.device_id);
             continue;
         };
+        eprintln!("pcid-spawner: MATCHED {:04x} -> {:?}", full_device_id.device_id, driver.name);
 
         let mut args = driver.command.iter();
 

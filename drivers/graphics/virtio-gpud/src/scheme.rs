@@ -106,7 +106,9 @@ impl<'a> fmt::Debug for VirtGpuAdapter<'a> {
 
 impl VirtGpuAdapter<'_> {
     pub async fn update_displays(&mut self) -> Result<(), Error> {
+        eprintln!("virtio-gpu: update_displays() - calling get_display_info");
         let display_info = self.get_display_info().await?;
+        eprintln!("virtio-gpu: update_displays() - got display_info");
         let raw_displays = &display_info.display_info[..self.config.num_scanouts() as usize];
 
         self.displays.resize(
@@ -176,18 +178,23 @@ impl VirtGpuAdapter<'_> {
     }
 
     async fn get_display_info(&self) -> Result<Dma<GetDisplayInfo>, Error> {
+        eprintln!("virtio-gpu: get_display_info() - creating header");
         let header = Dma::new(ControlHeader::with_ty(CommandTy::GetDisplayInfo))?;
 
+        eprintln!("virtio-gpu: get_display_info() - creating response buffer");
         let response = Dma::new(GetDisplayInfo::default())?;
         let command = ChainBuilder::new()
             .chain(Buffer::new(&header))
             .chain(Buffer::new(&response).flags(DescriptorFlags::WRITE_ONLY))
             .build();
 
+        eprintln!("virtio-gpu: get_display_info() - sending command to queue");
         self.control_queue.send(command)
             .expect("virtio-gpud: no descriptors for get_display_info")
             .await;
+        eprintln!("virtio-gpu: get_display_info() - command completed, checking response");
         assert!(response.header.ty == CommandTy::RespOkDisplayInfo);
+        eprintln!("virtio-gpu: get_display_info() - success");
 
         Ok(response)
     }
@@ -271,11 +278,13 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
     }
 
     fn init(&mut self, objects: &mut DrmObjects<Self>, standard_properties: &StandardProperties) {
-        log::info!("virtio-gpu: init() starting");
+        eprintln!("virtio-gpu: init() starting - about to update_displays");
         futures::executor::block_on(async {
+            eprintln!("virtio-gpu: init() in block_on, calling update_displays");
             self.update_displays().await.unwrap();
+            eprintln!("virtio-gpu: init() update_displays returned");
         });
-        log::info!("virtio-gpu: init() update_displays done, num_scanouts={}", self.config.num_scanouts.get());
+        eprintln!("virtio-gpu: init() update_displays done, num_scanouts={}", self.config.num_scanouts.get());
 
         for display_id in 0..self.config.num_scanouts.get() {
             log::info!("virtio-gpu: init() adding connector for display {}", display_id);
@@ -587,11 +596,11 @@ impl<'a> GpuScheme {
             displays: vec![],
         };
 
-        log::info!("virtio-gpu: GpuScheme::new - creating GraphicsScheme");
+        eprintln!("virtio-gpu: GpuScheme::new - creating GraphicsScheme");
         let scheme = GraphicsScheme::new(adapter, "display.virtio-gpu".to_owned());
-        log::info!("virtio-gpu: GpuScheme::new - scheme created, creating DisplayHandle");
+        eprintln!("virtio-gpu: GpuScheme::new - scheme created, creating DisplayHandle");
         let handle = DisplayHandle::new("virtio-gpu").unwrap();
-        log::info!("virtio-gpu: GpuScheme::new - complete");
+        eprintln!("virtio-gpu: GpuScheme::new - complete");
         Ok((scheme, handle))
     }
 }

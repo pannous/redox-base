@@ -500,7 +500,9 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
     // Double check that we have the right device.
     //
     // 0x1050 - virtio-gpu
+    eprintln!("virtio-gpud: getting pci_config");
     let pci_config = pcid_handle.config();
+    eprintln!("virtio-gpud: got pci_config, device_id={:04x}", pci_config.func.full_device_id.device_id);
 
     assert_eq!(pci_config.func.full_device_id.device_id, 0x1050);
     eprintln!("virtio-gpu: [1] startup begin");
@@ -543,6 +545,7 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
     deamon.ready();
     eprintln!("virtio-gpu: [10] daemon ready");
 
+    eprintln!("virtio-gpu: [11] calling GpuScheme::new()");
     let (mut scheme, mut inputd_handle) = scheme::GpuScheme::new(
         config,
         control_queue.clone(),

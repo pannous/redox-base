@@ -1,10 +1,17 @@
 use std::fs;
-use std::process::Command;
+use std::process::{Child, Command};
 
 use anyhow::{anyhow, Context, Result};
 
 use pcid_interface::config::Config;
 use pcid_interface::PciFunctionHandle;
+
+// Track spawned drivers for parallel loading
+struct SpawnedDriver {
+    name: String,
+    child: Child,
+    channel_fd: i32,
+}
 
 fn busy_wait_ms(ms: u64) {
     // Use sched_yield syscall to actually wait - spin loops get optimized away
@@ -80,7 +87,11 @@ fn main() -> Result<()> {
     eprintln!("pcid-spawner: waiting for /scheme/pci");
     // Wait for pcid to register the pci scheme (workaround for race condition)
     let dir_iter = wait_for_scheme("/scheme/pci", 50, 100)?;
-    eprintln!("pcid-spawner: starting device enumeration");
+    eprintln!("pcid-spawner: starting device enumeration (parallel mode)");
+
+    // Collect spawned drivers for parallel execution
+    let mut spawned_drivers: Vec<SpawnedDriver> = Vec::new();
+
     for entry in dir_iter {
         let entry = entry.context("failed to get entry")?;
         let device_path = entry.path();
@@ -117,7 +128,8 @@ fn main() -> Result<()> {
             eprintln!("pcid-spawner: no driver for {:04x}:{:04x}", full_device_id.vendor_id, full_device_id.device_id);
             continue;
         };
-        eprintln!("pcid-spawner: MATCHED {:04x} -> {:?}", full_device_id.device_id, driver.name);
+        let driver_name = driver.name.clone();
+        eprintln!("pcid-spawner: MATCHED {:04x} -> {:?}", full_device_id.device_id, driver_name);
 
         let mut args = driver.command.iter();
 
@@ -130,7 +142,7 @@ fn main() -> Result<()> {
             "/usr/lib/drivers/".to_owned() + program
         };
 
-        let mut command = Command::new(program);
+        let mut command = Command::new(&program);
         command.args(args);
 
         log::debug!("pcid-spawner: spawn {:?}", command);
@@ -142,15 +154,40 @@ fn main() -> Result<()> {
         // Suppress INFO/DEBUG logging for drivers (change to "info" or "debug" for verbose)
         command.env("RUST_LOG", "warn");
 
-        match command.status() {
-            Ok(status) if !status.success() => {
-                log::error!("pcid-spawner: driver {command:?} failed with {status}");
+        // Spawn driver in parallel instead of blocking
+        match command.spawn() {
+            Ok(child) => {
+                eprintln!("pcid-spawner: spawned {} (pid unknown)", driver_name);
+                spawned_drivers.push(SpawnedDriver {
+                    name: driver_name,
+                    child,
+                    channel_fd,
+                });
             }
-            Ok(_) => {}
-            Err(err) => log::error!("pcid-spawner: failed to execute {command:?}: {err}"),
+            Err(err) => {
+                log::error!("pcid-spawner: failed to spawn {}: {err}", driver_name);
+                syscall::close(channel_fd as usize).unwrap();
+            }
         }
-        syscall::close(channel_fd as usize).unwrap();
     }
 
+    // Wait for all spawned drivers to complete
+    eprintln!("pcid-spawner: waiting for {} drivers to initialize", spawned_drivers.len());
+    for mut spawned in spawned_drivers {
+        match spawned.child.wait() {
+            Ok(status) if !status.success() => {
+                log::error!("pcid-spawner: driver {} failed with {}", spawned.name, status);
+            }
+            Ok(_) => {
+                eprintln!("pcid-spawner: driver {} completed", spawned.name);
+            }
+            Err(err) => {
+                log::error!("pcid-spawner: failed to wait for {}: {err}", spawned.name);
+            }
+        }
+        syscall::close(spawned.channel_fd as usize).unwrap();
+    }
+
+    eprintln!("pcid-spawner: all drivers initialized");
     Ok(())
 }

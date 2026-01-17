@@ -310,6 +310,7 @@ const MAP_FAKE_OFFSET_MULTIPLIER: usize = 0x10_000_000;
 
 impl<T: GraphicsAdapter> SchemeSync for GraphicsScheme<T> {
     fn open(&mut self, path: &str, _flags: usize, _ctx: &CallerCtx) -> Result<OpenResult> {
+        let _ = std::fs::write("/scheme/debug/no-preserve", format!("OPEN:{}\n", path).as_bytes());
         if path.is_empty() {
             return Err(Error::new(EINVAL));
         }

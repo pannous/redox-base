@@ -97,6 +97,10 @@ impl ConsumerHandle {
             display_path.file_name().unwrap().to_str().unwrap()
         ));
         let display_path = display_path.to_str().unwrap();
+        // Write the path to debug console - use simple writes to avoid allocation issues
+        let _ = std::fs::write("/scheme/debug/no-preserve", b"PA:");
+        let _ = std::fs::write("/scheme/debug/no-preserve", display_path.as_bytes());
+        let _ = std::fs::write("/scheme/debug/no-preserve", b"\n");
         Self::debug_marker(b'4'); // V4 = about to open display
 
         let display_file =

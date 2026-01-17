@@ -485,6 +485,9 @@ fn daemon_runner(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
 }
 
 fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow::Result<()> {
+    // Immediate output before any other initialization
+    eprintln!("virtio-gpud: STARTED - before setup_logging");
+
     common::setup_logging(
         "graphics",
         "pci",
@@ -492,6 +495,7 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
         common::output_level(),
         common::file_level(),
     );
+    eprintln!("virtio-gpud: after setup_logging");
 
     // Double check that we have the right device.
     //
@@ -511,12 +515,13 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
     eprintln!("virtio-gpu: [4] got config");
 
     // Negotiate features.
-    let has_edid = device.transport.check_device_feature(VIRTIO_GPU_F_EDID);
-    if has_edid {
-        device.transport.ack_driver_feature(VIRTIO_GPU_F_EDID);
-    }
+    // DISABLED EDID for debugging - crashes suspected in EDID handling
+    let has_edid = false; // device.transport.check_device_feature(VIRTIO_GPU_F_EDID);
+    // if has_edid {
+    //     device.transport.ack_driver_feature(VIRTIO_GPU_F_EDID);
+    // }
     device.transport.finalize_features();
-    eprintln!("virtio-gpu: [5] features negotiated, edid={}", has_edid);
+    eprintln!("virtio-gpu: [5] features negotiated, edid={} (DISABLED)", has_edid);
 
     // Queue for sending control commands.
     let control_queue = device

@@ -271,11 +271,14 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
     }
 
     fn init(&mut self, objects: &mut DrmObjects<Self>, standard_properties: &StandardProperties) {
+        log::info!("virtio-gpu: init() starting");
         futures::executor::block_on(async {
             self.update_displays().await.unwrap();
         });
+        log::info!("virtio-gpu: init() update_displays done, num_scanouts={}", self.config.num_scanouts.get());
 
         for display_id in 0..self.config.num_scanouts.get() {
+            log::info!("virtio-gpu: init() adding connector for display {}", display_id);
             let connector = objects.add_connector(VirtGpuConnector { display_id });
             if self.has_edid {
                 objects.add_object_property(connector, standard_properties.edid, 0);
@@ -286,6 +289,7 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
                 DRM_MODE_DPMS_ON.into(),
             );
         }
+        log::info!("virtio-gpu: init() done");
     }
 
     fn get_cap(&self, cap: u32) -> syscall::Result<u64> {
@@ -583,8 +587,11 @@ impl<'a> GpuScheme {
             displays: vec![],
         };
 
+        log::info!("virtio-gpu: GpuScheme::new - creating GraphicsScheme");
         let scheme = GraphicsScheme::new(adapter, "display.virtio-gpu".to_owned());
+        log::info!("virtio-gpu: GpuScheme::new - scheme created, creating DisplayHandle");
         let handle = DisplayHandle::new("virtio-gpu").unwrap();
+        log::info!("virtio-gpu: GpuScheme::new - complete");
         Ok((scheme, handle))
     }
 }

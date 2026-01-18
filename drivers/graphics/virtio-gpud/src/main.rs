@@ -552,11 +552,32 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
             Input,
             Scheme,
             Interrupt,
+            Timer,
         }
     }
 
     let event_queue: EventQueue<Source> =
         EventQueue::new().expect("virtio-gpud: failed to create event queue");
+
+    // Open a timer fd to ensure periodic polling (workaround for event notification issues)
+    // The timer may not be available during early boot, so make it optional
+    let timer_fd = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/scheme/time/10000000"); // 10ms timer
+
+    if let Ok(ref fd) = timer_fd {
+        eprintln!("[virtio-gpud] [16b] timer fd={}", fd.as_raw_fd());
+        event_queue
+            .subscribe(
+                fd.as_raw_fd() as usize,
+                Source::Timer,
+                event::EventFlags::READ,
+            )
+            .unwrap();
+    } else {
+        eprintln!("[virtio-gpud] [16b] timer not available (early boot), using poll workaround");
+    }
 
     // Register for EVENT_READ events from inputd - this tells inputd's scheme to notify us
     // fevent syscall: fd, event flags -> result with current event flags
@@ -600,6 +621,7 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
     let all = [Source::Input, Source::Scheme, Source::Interrupt];
     eprintln!("[virtio-gpud] [17] starting event loop iteration");
     let mut event_count = 0usize;
+    let mut timer_buf = [0u8; 8];
 
     // Process initial events first
     for source in all {
@@ -626,11 +648,41 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
                 eprintln!("[virtio-gpud] EVENT: Interrupt");
                 // Process interrupt inline
             }
+            Source::Timer => {
+                // Drain timer and poll all sources
+            }
         }
     }
 
     eprintln!("[virtio-gpud] [18] Initial events done, entering main event loop");
+
+    // Poll scheme once more before entering blocking loop to catch any events
+    // that arrived between fevent registration and now
+    eprintln!("[virtio-gpud] [18b] Pre-loop scheme poll");
+    if let Err(e) = scheme.tick() {
+        if e.kind() != std::io::ErrorKind::WouldBlock {
+            eprintln!("[virtio-gpud] Pre-loop poll error: {:?}", e);
+        }
+    }
+
+    // Use a simple polling loop instead of relying on event notifications
+    // This is a workaround for event notification issues on aarch64
+    eprintln!("[virtio-gpud] [18c] Starting polling-based event loop");
     let _ = std::fs::write("/scheme/debug/no-preserve", b"EQ\n"); // EQ = entering event queue
+
+    loop {
+        // Poll scheme for any pending requests
+        let _ = scheme.tick();
+
+        // Small sleep to avoid busy-waiting (1ms)
+        std::thread::sleep(std::time::Duration::from_millis(1));
+
+        // Also try to get an event (non-blocking check would be ideal, but iterator blocks)
+        // For now, just poll the scheme continuously
+    }
+
+    // Original event queue code preserved but unreachable
+    #[allow(unreachable_code)]
     for event_result in event_queue {
         let _ = std::fs::write("/scheme/debug/no-preserve", b"EV\n"); // EV = got event
         let event = event_result.expect("virtio-gpud: failed to get next event");
@@ -684,6 +736,21 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
                     break;
                 }
                 } // end loop
+            }
+            Source::Timer => {
+                // Timer fired - drain it and poll scheme for any missed events
+                use std::io::Read;
+                if let Ok(ref fd) = timer_fd {
+                    let _ = fd.try_clone().and_then(|mut f| f.read(&mut timer_buf));
+                }
+            }
+        }
+
+        // After processing any event, also poll scheme to catch any missed events
+        // This is a workaround for potential event notification race conditions
+        if let Err(e) = scheme.tick() {
+            if e.kind() != std::io::ErrorKind::WouldBlock {
+                eprintln!("[virtio-gpud] Post-event poll error: {:?}", e);
             }
         }
     }

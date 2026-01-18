@@ -674,8 +674,8 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
         // Poll scheme for any pending requests
         let _ = scheme.tick();
 
-        // Small sleep to avoid busy-waiting (1ms)
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        // Sleep to avoid busy-waiting (10ms)
+        std::thread::sleep(std::time::Duration::from_millis(10));
 
         // Also try to get an event (non-blocking check would be ideal, but iterator blocks)
         // For now, just poll the scheme continuously

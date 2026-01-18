@@ -91,9 +91,6 @@ impl InputScheme {
             return;
         }
 
-        eprintln!("inputd: switch_vt: switching from VT #{} to VT #{new_active}", self.active_vt.unwrap_or(0));
-        eprintln!("inputd: switch_vt: current display={:?}", self.display);
-
         // Mark that we have new events to trigger notification to display drivers
         self.has_new_events = true;
 
@@ -105,9 +102,7 @@ impl InputScheme {
                     device,
                     ..
                 } => {
-                    eprintln!("inputd: switch_vt: checking display '{}' vs current '{:?}'", device, self.display);
                     if self.display.as_deref() == Some(&*device) {
-                        eprintln!("inputd: switch_vt: PUSHING VtActivate to display '{}'", device);
                         pending.push(VtEvent {
                             kind: VtEventKind::Activate,
                             vt: new_active,
@@ -137,14 +132,10 @@ impl SchemeSync for InputScheme {
             "producer" => Handle::Producer,
             "consumer" => {
                 let vt = self.next_vt_id.fetch_add(1, Ordering::Relaxed);
-                eprintln!("inputd: CONSUMER OPEN: vt={} active_vt={:?}", vt, self.active_vt);
                 self.vts.insert(vt);
 
                 if self.active_vt.is_none() {
-                    eprintln!("inputd: CONSUMER OPEN: calling switch_vt({})", vt);
                     self.switch_vt(vt);
-                } else {
-                    eprintln!("inputd: CONSUMER OPEN: active_vt already set, not switching");
                 }
 
                 Handle::Consumer {
@@ -463,7 +454,6 @@ impl SchemeSync for InputScheme {
                 device,
                 ..
             } => {
-                eprintln!("inputd: FEVENT for display '{}': setting events={:?}", device, flags);
                 *events = flags;
                 *notified = false;
                 Ok(EventFlags::empty())
@@ -497,18 +487,8 @@ impl InputScheme {
 }
 
 fn deamon(deamon: daemon::Daemon) -> anyhow::Result<()> {
-    eprintln!("inputd: deamon() called, attempting to create :input scheme...");
     // Create the ":input" scheme.
-    let socket_file = match Socket::create("input") {
-        Ok(s) => {
-            eprintln!("inputd: :input scheme created successfully");
-            s
-        }
-        Err(e) => {
-            eprintln!("inputd: FAILED to create :input scheme: {:?}", e);
-            return Err(e.into());
-        }
-    };
+    let socket_file = Socket::create("input")?;
     let mut scheme = InputScheme::new();
 
     deamon.ready();
@@ -568,13 +548,11 @@ fn deamon(deamon: daemon::Daemon) -> anyhow::Result<()> {
                     device,
                     ..
                 } => {
-                    eprintln!("inputd: Display {}: pending={} notified={} events={:?}", device, pending.len(), *notified, events);
                     if pending.is_empty() || *notified || !events.contains(EventFlags::EVENT_READ) {
                         continue;
                     }
 
-                    // Notify the consumer that we have some events to read. Yum yum.
-                    eprintln!("inputd: NOTIFYING Display {} (id={})", device, id);
+                    // Notify the consumer that we have some events to read.
                     socket_file.write_response(
                         Response::post_fevent(*id, EventFlags::EVENT_READ.bits()),
                         SignalBehavior::Restart,
@@ -594,10 +572,6 @@ fn daemon_runner(daemon: daemon::Daemon) -> ! {
 }
 
 fn main() {
-    // Debug: print all arguments
-    let all_args: Vec<String> = std::env::args().collect();
-    eprintln!("inputd: started with {} args: {:?}", all_args.len(), all_args);
-
     common::setup_logging(
         "input",
         "inputd",
@@ -609,41 +583,31 @@ fn main() {
     let mut args = std::env::args().skip(1);
 
     if let Some(val) = args.next() {
-        eprintln!("inputd: received argument: '{}'", val);
         match val.as_ref() {
             // Activates a VT.
             "-A" => {
                 let vt = args.next().unwrap().parse::<usize>().unwrap();
-                eprintln!("inputd: activating VT {}", vt);
-
-                eprintln!("inputd: opening control handle...");
                 let mut handle =
                     inputd::ControlHandle::new().expect("inputd: failed to open display handle");
-                eprintln!("inputd: control handle opened, activating VT...");
                 handle
                     .activate_vt(vt)
                     .expect("inputd: failed to activate VT");
-                eprintln!("inputd: VT activated successfully");
             }
 
             // List available keymaps (stub - keymaps are handled by ps2d)
             "--keymaps" => {
-                eprintln!("inputd: --keymaps requested (stub)");
-                // Return "us" as the only keymap for now
                 println!("us");
             }
 
             // Set keymap (stub - keymaps are handled by ps2d)
             "-K" => {
-                let keymap = args.next().unwrap_or_default();
-                eprintln!("inputd: -K {} requested (stub, not implemented)", keymap);
+                let _keymap = args.next().unwrap_or_default();
                 // Just exit successfully, keymap change not implemented in inputd
             }
 
             _ => panic!("inputd: invalid argument: {}", val),
         }
     } else {
-        eprintln!("inputd: NO ARGUMENTS - starting daemon mode (this should only happen once at boot!)");
         daemon::Daemon::new(daemon_runner);
     }
 }

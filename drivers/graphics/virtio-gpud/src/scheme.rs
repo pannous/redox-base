@@ -584,11 +584,8 @@ impl<'a> GpuScheme {
             displays: vec![],
         };
 
-        eprintln!("[virtio-gpud] Creating GraphicsScheme...");
         let scheme = GraphicsScheme::new(adapter, "display.virtio-gpu".to_owned());
-        eprintln!("[virtio-gpud] GraphicsScheme created, registering with inputd...");
         let handle = DisplayHandle::new("virtio-gpu").unwrap();
-        eprintln!("[virtio-gpud] Registered with inputd");
         Ok((scheme, handle))
     }
 }

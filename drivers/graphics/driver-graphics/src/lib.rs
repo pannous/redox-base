@@ -234,7 +234,6 @@ impl<T: GraphicsAdapter> GraphicsScheme<T> {
     /// This needs to be called each time there is a new event on the scheme
     /// file.
     pub fn tick(&mut self) -> io::Result<()> {
-        let _ = std::fs::write("/scheme/debug/no-preserve", b"TICK\n");
         loop {
             let request = match self.socket.next_request(SignalBehavior::Restart) {
                 Ok(Some(request)) => request,
@@ -248,9 +247,7 @@ impl<T: GraphicsAdapter> GraphicsScheme<T> {
 
             match request.kind() {
                 RequestKind::Call(call) => {
-                    let _ = std::fs::write("/scheme/debug/no-preserve", b"CALL\n");
                     let response = call.handle_sync(self);
-                    let _ = std::fs::write("/scheme/debug/no-preserve", b"RESP\n");
                     self.socket
                         .write_response(response, SignalBehavior::Restart)
                         .expect("driver-graphics: failed to write response");
@@ -310,7 +307,6 @@ const MAP_FAKE_OFFSET_MULTIPLIER: usize = 0x10_000_000;
 
 impl<T: GraphicsAdapter> SchemeSync for GraphicsScheme<T> {
     fn open(&mut self, path: &str, _flags: usize, _ctx: &CallerCtx) -> Result<OpenResult> {
-        let _ = std::fs::write("/scheme/debug/no-preserve", format!("OPEN:{}\n", path).as_bytes());
         if path.is_empty() {
             return Err(Error::new(EINVAL));
         }

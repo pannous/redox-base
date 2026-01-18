@@ -542,143 +542,29 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
     )?;
     eprintln!("[virtio-gpud] [14] GpuScheme created");
 
-    // Now signal that the daemon is ready (display scheme exists)
-    eprintln!("[virtio-gpud] [15] calling daemon.ready()");
+    // Signal that the daemon is ready (display scheme exists)
     deamon.ready();
-    eprintln!("[virtio-gpud] [16] daemon.ready() done, entering event loop");
 
-    user_data! {
-        enum Source {
-            Input,
-            Scheme,
-            Interrupt,
-            Timer,
-        }
+    // Process any initial VT events from inputd
+    while let Some(vt_event) = inputd_handle
+        .read_vt_event()
+        .expect("virtio-gpud: failed to read display handle")
+    {
+        scheme.handle_vt_event(vt_event);
     }
 
-    let event_queue: EventQueue<Source> =
-        EventQueue::new().expect("virtio-gpud: failed to create event queue");
+    // Process any initial scheme requests
+    let _ = scheme.tick();
 
-    // Open a timer fd to ensure periodic polling (workaround for event notification issues)
-    // The timer may not be available during early boot, so make it optional
-    let timer_fd = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open("/scheme/time/10000000"); // 10ms timer
-
-    if let Ok(ref fd) = timer_fd {
-        eprintln!("[virtio-gpud] [16b] timer fd={}", fd.as_raw_fd());
-        event_queue
-            .subscribe(
-                fd.as_raw_fd() as usize,
-                Source::Timer,
-                event::EventFlags::READ,
-            )
-            .unwrap();
-    } else {
-        eprintln!("[virtio-gpud] [16b] timer not available (early boot), using poll workaround");
-    }
-
-    // Register for EVENT_READ events from inputd - this tells inputd's scheme to notify us
-    // fevent syscall: fd, event flags -> result with current event flags
-    eprintln!("[virtio-gpud] [17a] calling fevent on inputd handle fd={}", inputd_handle.inner().as_raw_fd());
-    let fevent_result = unsafe {
-        syscall::syscall2(syscall::SYS_FEVENT, inputd_handle.inner().as_raw_fd() as usize, EventFlags::EVENT_READ.bits())
-    };
-    eprintln!("[virtio-gpud] [17b] fevent returned {:?}", fevent_result);
-    fevent_result.expect("virtio-gpud: failed to register for inputd events");
-
-    event_queue
-        .subscribe(
-            inputd_handle.inner().as_raw_fd() as usize,
-            Source::Input,
-            event::EventFlags::READ,
-        )
-        .unwrap();
-    // Also register fevent for scheme socket explicitly
-    let scheme_fd = scheme.event_handle().raw();
-    eprintln!("[virtio-gpud] [17c] registering fevent for scheme socket fd={}", scheme_fd);
-    let scheme_fevent_result = unsafe {
-        syscall::syscall2(syscall::SYS_FEVENT, scheme_fd as usize, EventFlags::EVENT_READ.bits())
-    };
-    eprintln!("[virtio-gpud] [17d] scheme fevent returned {:?}", scheme_fevent_result);
-
-    event_queue
-        .subscribe(
-            scheme_fd as usize,
-            Source::Scheme,
-            event::EventFlags::READ,
-        )
-        .unwrap();
-    event_queue
-        .subscribe(
-            device.irq_handle.as_raw_fd() as usize,
-            Source::Interrupt,
-            event::EventFlags::READ,
-        )
-        .unwrap();
-
-    let all = [Source::Input, Source::Scheme, Source::Interrupt];
-    eprintln!("[virtio-gpud] [17] starting event loop iteration");
-    let mut event_count = 0usize;
-    let mut timer_buf = [0u8; 8];
-
-    // Process initial events first
-    for source in all {
-        event_count += 1;
-        eprintln!("[virtio-gpud] *** Initial event #{} ({:?})", event_count, source);
-        match source {
-            Source::Input => {
-                eprintln!("[virtio-gpud] EVENT: Input");
-                while let Some(vt_event) = inputd_handle
-                    .read_vt_event()
-                    .expect("virtio-gpud: failed to read display handle")
-                {
-                    eprintln!("[virtio-gpud] Got vt_event: {:?}", vt_event);
-                    scheme.handle_vt_event(vt_event);
-                }
-            }
-            Source::Scheme => {
-                eprintln!("[virtio-gpud] EVENT: Scheme");
-                scheme
-                    .tick()
-                    .expect("virtio-gpud: failed to process scheme events");
-            }
-            Source::Interrupt => {
-                eprintln!("[virtio-gpud] EVENT: Interrupt");
-                // Process interrupt inline
-            }
-            Source::Timer => {
-                // Drain timer and poll all sources
-            }
-        }
-    }
-
-    eprintln!("[virtio-gpud] [18] Initial events done, entering main event loop");
-
-    // Poll scheme once more before entering blocking loop to catch any events
-    // that arrived between fevent registration and now
-    eprintln!("[virtio-gpud] [18b] Pre-loop scheme poll");
-    if let Err(e) = scheme.tick() {
-        if e.kind() != std::io::ErrorKind::WouldBlock {
-            eprintln!("[virtio-gpud] Pre-loop poll error: {:?}", e);
-        }
-    }
-
-    // Use a simple polling loop instead of relying on event notifications
-    // This is a workaround for event notification issues on aarch64
-    eprintln!("[virtio-gpud] [18c] Starting polling-based event loop");
-    let _ = std::fs::write("/scheme/debug/no-preserve", b"EQ\n"); // EQ = entering event queue
-
+    // Use a polling loop for scheme requests
+    // This is a workaround for event notification issues on aarch64 where
+    // the kernel event queue doesn't reliably deliver scheme socket notifications
     loop {
         // Poll scheme for any pending requests
         let _ = scheme.tick();
 
         // Sleep to avoid busy-waiting (10ms)
         std::thread::sleep(std::time::Duration::from_millis(10));
-
-        // Also try to get an event (non-blocking check would be ideal, but iterator blocks)
-        // For now, just poll the scheme continuously
     }
 
     // Original event queue code preserved but unreachable

@@ -72,21 +72,10 @@ impl ConsumerHandle {
         Ok(display_file)
     }
 
-    fn debug_marker(c: u8) {
-        // Write debug marker to kernel debug console - doesn't block on logd
-        let _ = std::fs::write("/scheme/debug/no-preserve", &[b'V', c, b'\n']);
-    }
-
     pub fn open_display_v2(&self) -> io::Result<File> {
-        Self::debug_marker(b'1'); // V1 = entered open_display_v2
         let mut buffer = [0; 1024];
         let fd = self.0.as_raw_fd();
-        Self::debug_marker(b'2'); // V2 = about to call fpath
         let written = libredox::call::fpath(fd as usize, &mut buffer)?;
-        // Write the path length to debug console (single digit for simplicity)
-        let len_digit = if written < 10 { b'0' + written as u8 } else if written < 100 { b'L' } else { b'X' };
-        let _ = std::fs::write("/scheme/debug/no-preserve", &[b'W', len_digit, b'\n']);
-        Self::debug_marker(b'3'); // V3 = fpath returned
 
         assert!(written <= buffer.len());
 
@@ -100,9 +89,6 @@ impl ConsumerHandle {
             display_path.file_name().unwrap().to_str().unwrap()
         ));
         let display_path = display_path.to_str().unwrap();
-        // Write the path to a file for debugging
-        let _ = std::fs::write("/scheme/9p.hostshare/display-path.txt", display_path.as_bytes());
-        Self::debug_marker(b'4'); // V4 = about to open display
 
         let display_file =
             libredox::call::open(&display_path, (O_CLOEXEC | O_NONBLOCK | O_RDWR) as _, 0)
@@ -110,7 +96,6 @@ impl ConsumerHandle {
                 .unwrap_or_else(|err| {
                     panic!("failed to open display {}: {}", display_path, err);
                 });
-        Self::debug_marker(b'5'); // V5 = display opened
 
         Ok(display_file)
     }

@@ -1,0 +1,10 @@
+[package]
+name = "readdir-bench"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[[bin]]
+name = "readdir-bench"
+path = "src/main.rs"

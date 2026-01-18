@@ -20,12 +20,9 @@
 // cc https://docs.mesa3d.org/drivers/venus.html
 // cc https://docs.mesa3d.org/drivers/virgl.html
 
-use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use driver_graphics::GraphicsAdapter;
-use syscall::EventFlags;
-use event::{user_data, EventQueue};
 use pcid_interface::PciFunctionHandle;
 
 use virtio_core::utils::VolatileCell;
@@ -486,7 +483,6 @@ fn daemon_runner(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
 }
 
 fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow::Result<()> {
-    eprintln!("[virtio-gpud] [1] daemon fn entered");
     common::setup_logging(
         "graphics",
         "pci",
@@ -494,45 +490,33 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
         common::output_level(),
         common::file_level(),
     );
-    eprintln!("[virtio-gpud] [2] logging setup done");
 
     // Double check that we have the right device (0x1050 = virtio-gpu)
     let pci_config = pcid_handle.config();
-    eprintln!("[virtio-gpud] [3] got pci config, device_id={:#x}", pci_config.func.full_device_id.device_id);
     assert_eq!(pci_config.func.full_device_id.device_id, 0x1050);
-    eprintln!("[virtio-gpud] [4] device ID verified");
     log::info!("virtio-gpu: initiating startup sequence");
 
-    eprintln!("[virtio-gpud] [5] calling probe_device");
     let device = DEVICE.try_call_once(|| virtio_core::probe_device(&mut pcid_handle))?;
-    eprintln!("[virtio-gpud] [6] probe_device done");
     let config = unsafe { &mut *(device.device_space as *mut GpuConfig) };
 
     // Negotiate features (EDID disabled for now)
     let has_edid = false;
     device.transport.finalize_features();
-    eprintln!("[virtio-gpud] [7] features finalized");
 
     // Queue for sending control commands
-    eprintln!("[virtio-gpud] [8] setting up control queue");
     let control_queue = device
         .transport
         .setup_queue(MSIX_PRIMARY_VECTOR, &device.irq_handle)?;
-    eprintln!("[virtio-gpud] [9] control queue done");
 
     // Queue for sending cursor updates
-    eprintln!("[virtio-gpud] [10] setting up cursor queue");
     let cursor_queue = device
         .transport
         .setup_queue(MSIX_PRIMARY_VECTOR, &device.irq_handle)?;
-    eprintln!("[virtio-gpud] [11] cursor queue done");
 
     device.transport.setup_config_notify(MSIX_PRIMARY_VECTOR);
     device.transport.run_device();
-    eprintln!("[virtio-gpud] [12] device running");
 
     // Create the display scheme BEFORE signaling ready, so fbbootlogd/fbcond can find it
-    eprintln!("[virtio-gpud] [13] creating GpuScheme");
     let (mut scheme, mut inputd_handle) = scheme::GpuScheme::new(
         config,
         control_queue.clone(),
@@ -540,7 +524,6 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
         device.transport.clone(),
         has_edid,
     )?;
-    eprintln!("[virtio-gpud] [14] GpuScheme created");
 
     // Signal that the daemon is ready (display scheme exists)
     deamon.ready();
@@ -566,80 +549,4 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
         // Sleep to avoid busy-waiting (10ms)
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-
-    // Original event queue code preserved but unreachable
-    #[allow(unreachable_code)]
-    for event_result in event_queue {
-        let _ = std::fs::write("/scheme/debug/no-preserve", b"EV\n"); // EV = got event
-        let event = event_result.expect("virtio-gpud: failed to get next event");
-        let source: Source = event.user_data;
-        event_count += 1;
-        eprintln!("[virtio-gpud] *** Event #{} received ({:?})", event_count, source);
-        match source {
-            Source::Input => {
-                eprintln!("[virtio-gpud] EVENT: Input");
-                while let Some(vt_event) = inputd_handle
-                    .read_vt_event()
-                    .expect("virtio-gpud: failed to read display handle")
-                {
-                    eprintln!("[virtio-gpud] Got vt_event: {:?}", vt_event);
-                    scheme.handle_vt_event(vt_event);
-                }
-            }
-            Source::Scheme => {
-                eprintln!("[virtio-gpud] EVENT: Scheme");
-                scheme
-                    .tick()
-                    .expect("virtio-gpud: failed to process scheme events");
-            }
-            Source::Interrupt => {
-                eprintln!("[virtio-gpud] EVENT: Interrupt");
-                loop {
-                // Read ISR to acknowledge the interrupt (required for legacy INTx on aarch64)
-                let _isr_status = device.read_isr_status();
-
-                let before_gen = device.transport.config_generation();
-
-                let events = scheme.adapter().config.events_read.get();
-
-                if events & VIRTIO_GPU_EVENT_DISPLAY != 0 {
-                    let standard_properties = scheme.standard_properties();
-                    let (adapter, objects) = scheme.adapter_and_objects_mut();
-                    futures::executor::block_on(async { adapter.update_displays().await.unwrap() });
-                    for connector_id in objects.connector_ids().to_vec() {
-                        adapter.probe_connector(objects, &standard_properties, connector_id);
-                    }
-                    scheme.notify_displays_changed();
-                    scheme
-                        .adapter_mut()
-                        .config
-                        .events_clear
-                        .set(VIRTIO_GPU_EVENT_DISPLAY);
-                }
-
-                let after_gen = device.transport.config_generation();
-                if before_gen == after_gen {
-                    break;
-                }
-                } // end loop
-            }
-            Source::Timer => {
-                // Timer fired - drain it and poll scheme for any missed events
-                use std::io::Read;
-                if let Ok(ref fd) = timer_fd {
-                    let _ = fd.try_clone().and_then(|mut f| f.read(&mut timer_buf));
-                }
-            }
-        }
-
-        // After processing any event, also poll scheme to catch any missed events
-        // This is a workaround for potential event notification race conditions
-        if let Err(e) = scheme.tick() {
-            if e.kind() != std::io::ErrorKind::WouldBlock {
-                eprintln!("[virtio-gpud] Post-event poll error: {:?}", e);
-            }
-        }
-    }
-
-    std::process::exit(0);
 }
